@@ -43,7 +43,7 @@ grim -g "<x>,<y> <w>x30" - | magick - -scale 800% /tmp/bar.png
 
 ## Checks
 
-`node test_docker.js` — 215 checks, plain node, no framework, no network, no daemon.
+`node test_docker.js` — 217 checks, plain node, no framework, no network, no daemon.
 
 `Docker.js` is a QML `.js` resource and cannot carry `export`, so the test file
 `eval`s it into scope. Keep `Docker.js` free of QML types (`Process`, `Timer`,
@@ -566,7 +566,25 @@ you passwordless root" is applying pressure through convenience, so:
   Omarchy leans on — while its README says it uses no `pkexec` at all.
 
 Rootless Docker is the recommended way to get the full widget: nothing here
-names a socket path, so `DOCKER_HOST` is followed and it works unchanged.
+names a socket path, so the `docker` CLI's own context is followed and the
+listing, the metrics and every container and stack action work unchanged.
+Verified end to end against a live rootless daemon.
+
+**The daemon controls are the one thing that is not context-agnostic.** Rootless
+runs the engine as a systemd USER unit, and these commands named the system one
+unconditionally — so with both daemons up, which is the normal state while
+someone is trying rootless out, "stop the Docker daemon" stopped the one the
+mosaic was *not* showing, and the mosaic did not even flicker. Measured on a
+machine where that was fourteen running containers. The autostart indicator lied
+for the same reason: it read `is-enabled` off the system unit while the user
+unit was the enabled one.
+
+`Service.rootless` decides the scope, and it is read off the daemon —
+`docker info` reporting `name=rootless` — rather than inferred from a context
+file or `DOCKER_HOST`, because either can be edited, can be stale, and can
+disagree with whatever actually answered. `daemonCommand(action, rootless)` and
+`daemonStatusCommand(rootless)` take it; omitting the argument keeps the system
+scope, so an older call site cannot silently switch daemons.
 
 **Image labels are hostile input.** `com.docker.compose.project` and `.service`
 come from labels, and any image can set them to anything — Docker rejects a `<`

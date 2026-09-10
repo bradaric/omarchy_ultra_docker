@@ -1731,6 +1731,45 @@ check("without a key, lazydocker goes through omarchy's own wrapper", () => {
   assert.ok(!direct.includes("pkexec"), "we never elevate ourselves")
 })
 
+check("the daemon controls address the daemon that answered", () => {
+  // Rootless runs the engine as a systemd USER unit. These commands always
+  // named the system one, so with both daemons up — the normal state while
+  // someone is trying rootless out — "stop the Docker daemon" stopped the one
+  // the mosaic was NOT showing, and the mosaic did not even flicker. Measured
+  // on a machine where that was fourteen running containers.
+  for (const action of ["start", "stop", "enable", "disable"]) {
+    const system = daemonCommand(action, false)
+    const user = daemonCommand(action, true)
+
+    assert.deepStrictEqual(system.slice(0, 1), ["systemctl"], action)
+    assert.deepStrictEqual(user.slice(0, 2), ["systemctl", "--user"], action)
+    assert.deepStrictEqual(user.slice(2), system.slice(1), action + " differs only in scope")
+  }
+
+  assert.deepStrictEqual(daemonStatusCommand(false), ["systemctl", "is-enabled", "docker.service"])
+  assert.deepStrictEqual(daemonStatusCommand(true),
+    ["systemctl", "--user", "is-enabled", "docker.service"])
+
+  // Absent means system: an older caller that passes nothing keeps the old
+  // behaviour rather than silently switching scope.
+  assert.deepStrictEqual(daemonCommand("start"), daemonCommand("start", false))
+})
+
+check("rootless is read off the daemon, not guessed", () => {
+  // A context file can be edited and an env var can be stale; either can
+  // disagree with whatever actually answered. The engine is the only source
+  // that cannot.
+  const command = daemonScopeCommand()
+  assert.strictEqual(command[0], "bash", "bounded like every other reader")
+  assert.ok(command[2].includes("'docker' 'info'"))
+  assert.ok(command[2].includes("SecurityOptions"))
+
+  assert.strictEqual(parseRootless("name=seccomp,profile=builtin\nname=rootless\n"), true)
+  assert.strictEqual(parseRootless("name=seccomp,profile=builtin\nname=cgroupns\n"), false)
+  assert.strictEqual(parseRootless(""), false)
+  assert.strictEqual(parseRootless(null), false)
+})
+
 check("the daemon controls are hidden rather than dead", () => {
   // Starting the system daemon does not hand you its socket, so the button
   // cannot work. Every control looking live and doing nothing is this plugin's

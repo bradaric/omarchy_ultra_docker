@@ -1810,11 +1810,12 @@ function parseHostDisk(stdout) {
 // systemctl as the user, which authenticates through the ordinary polkit
 // prompt. No sudo, no pkexec, nothing setuid.
 
-function daemonCommand(action) {
-  if (action === "stop") return ["systemctl", "stop", ENGINE + ".service", ENGINE + ".socket"]
-  if (action === "start") return ["systemctl", "start", ENGINE + ".service"]
-  if (action === "enable") return ["systemctl", "enable", ENGINE + ".service"]
-  if (action === "disable") return ["systemctl", "disable", ENGINE + ".service"]
+function daemonCommand(action, rootless) {
+  var systemctl = systemctlFor(rootless)
+  if (action === "stop") return systemctl.concat(["stop", ENGINE + ".service", ENGINE + ".socket"])
+  if (action === "start") return systemctl.concat(["start", ENGINE + ".service"])
+  if (action === "enable") return systemctl.concat(["enable", ENGINE + ".service"])
+  if (action === "disable") return systemctl.concat(["disable", ENGINE + ".service"])
   return []
 }
 
@@ -1874,8 +1875,33 @@ function openAccessSettingCommand() {
   return ["omarchy", "menu", "summon", "setup.security.sudoless-docker"]
 }
 
-function daemonStatusCommand() {
-  return ["systemctl", "is-enabled", ENGINE + ".service"]
+// ------------------------------------------------- which daemon is this
+//
+// Rootless runs the engine as a systemd USER unit. The controls below always
+// named the system one, so on a machine with both daemons up — which is the
+// normal state while someone is trying rootless out — the stop button killed
+// the daemon the mosaic was NOT showing, and the mosaic did not even flicker.
+// On this machine that was fourteen running containers behind a button whose
+// tooltip said "stop the Docker daemon".
+//
+// The daemon itself is the only honest source: a context path can be edited, an
+// env var can be stale, and either can disagree with what actually answered.
+function daemonScopeCommand() {
+  return boundedCommand([ENGINE, "info", "--format",
+    "{{range .SecurityOptions}}{{println .}}{{end}}"])
+}
+
+function parseRootless(stdout) {
+  return String(stdout || "").indexOf("name=rootless") >= 0
+}
+
+// systemctl --user for a rootless engine, plain systemctl otherwise.
+function systemctlFor(rootless) {
+  return rootless ? ["systemctl", "--user"] : ["systemctl"]
+}
+
+function daemonStatusCommand(rootless) {
+  return systemctlFor(rootless).concat(["is-enabled", ENGINE + ".service"])
 }
 
 // -------------------------------------------------------------- commands

@@ -165,6 +165,33 @@ Item {
     accessCheck.running = true
   }
 
+  // Whether the engine answering us is a rootless one. It decides which
+  // systemd unit the daemon controls address, and getting it wrong means the
+  // stop button kills a daemon the mosaic is not even showing — with both up,
+  // which is the normal state while someone is trying rootless out, that is a
+  // machine's worth of running containers behind a button labelled "stop the
+  // Docker daemon".
+  //
+  // Asked of the daemon rather than inferred from a context file or an env
+  // var: those can be edited, can be stale, and can disagree with whatever
+  // actually answered.
+  property bool rootless: false
+
+  Process {
+    id: scopeCheck
+    stdout: StdioCollector {
+      id: scopeStdout
+      waitForEnd: true
+      onStreamFinished: root.rootless = Docker.parseRootless(scopeStdout.text)
+    }
+  }
+
+  function checkScope() {
+    if (scopeCheck.running) return
+    scopeCheck.command = Docker.daemonScopeCommand()
+    scopeCheck.running = true
+  }
+
   function applyPs(text, exitCode) {
     root.loaded = true
 
@@ -793,7 +820,7 @@ Item {
 
   function checkAutostart() {
     if (autostartCheck.running) return
-    autostartCheck.command = Docker.daemonStatusCommand()
+    autostartCheck.command = Docker.daemonStatusCommand(root.rootless)
     autostartCheck.running = true
   }
 
@@ -804,7 +831,7 @@ Item {
 
   function runDaemon(action) {
     if (daemonProcess.running) return
-    var command = Docker.daemonCommand(action)
+    var command = Docker.daemonCommand(action, root.rootless)
     if (command.length === 0) return
     daemonProcess.command = command
     daemonProcess.running = true
@@ -829,6 +856,7 @@ Item {
   Component.onCompleted: {
     applyLanguage(languagePreference)
     checkAccess()
+    checkScope()
     refresh()
     eventsProcess.running = true
   }
