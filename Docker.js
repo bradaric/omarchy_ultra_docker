@@ -1855,6 +1855,25 @@ function canControlDaemon(needsSudo) {
   return !needsSudo
 }
 
+// Describing the fix and making someone go find it are not the same thing. A
+// panel that says "opt in at Setup > Security > Sudoless Docker" is still a
+// widget that does not work, and the six other Docker plugins in the
+// marketplace answer that by telling people to run `usermod -aG docker` — one
+// of them with a button that runs it for them.
+//
+// This navigates to Omarchy's own menu entry instead of running anything. The
+// route's `when` guard already hides it for someone who has opted in, and the
+// action behind it opens Omarchy's floating terminal running
+// omarchy-setup-security-sudoless-docker, which prints the passwordless-root
+// warning, asks with gum, and handles the reboot.
+//
+// So the button is a signpost, not a shortcut: the privilege, the warning and
+// the confirmation all stay Omarchy's. That is the line — a plugin may point at
+// the switch, and may not throw it.
+function openAccessSettingCommand() {
+  return ["omarchy", "menu", "summon", "setup.security.sudoless-docker"]
+}
+
 function daemonStatusCommand() {
   return ["systemctl", "is-enabled", ENGINE + ".service"]
 }

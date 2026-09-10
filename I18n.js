@@ -130,7 +130,8 @@ var STRINGS = {
     // the reason.
     "daemon.down": "the Docker daemon is not running",
     "daemon.noAccess": "no access to the Docker daemon",
-    "daemon.noAccessHint": "Rootless Docker gives this widget full access without granting root. Or opt in at Setup > Security > Sudoless Docker — that adds you to the docker group, which is passwordless root.",
+    "daemon.noAccessHint": "Rootless Docker gives this widget full access without granting root. Or opt in below — that adds you to the docker group, which is passwordless root for everything running as you.",
+    "daemon.openToggle": "Open Omarchy's Sudoless Docker setting",
     "daemon.missing": "docker not found",
     "daemon.stopConfirm": "Stop the {engine} daemon?\nEvery running container stops with it.",
 
@@ -306,7 +307,8 @@ var STRINGS = {
     "daemon.unavailable": "indisponível",
     "daemon.down": "o daemon do Docker não está rodando",
     "daemon.noAccess": "sem acesso ao daemon do Docker",
-    "daemon.noAccessHint": "O Docker rootless dá acesso completo a este widget sem conceder root. Ou habilite em Setup > Security > Sudoless Docker — isso adiciona você ao grupo docker, que é root sem senha.",
+    "daemon.noAccessHint": "O Docker rootless dá acesso completo a este widget sem conceder root. Ou habilite abaixo — isso adiciona você ao grupo docker, que é root sem senha para tudo que roda como você.",
+    "daemon.openToggle": "Abrir a opção Sudoless Docker do Omarchy",
     "daemon.missing": "docker não encontrado",
     "daemon.stopConfirm": "Parar o daemon do {engine}?\nTodo container em execução para junto.",
 

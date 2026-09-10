@@ -1501,6 +1501,21 @@ Panel {
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }
+
+        // A signpost, not a shortcut. It opens Omarchy's own menu entry, which
+        // runs Omarchy's own setup command in a floating terminal — with the
+        // passwordless-root warning, the confirmation and the reboot. Naming
+        // whose setting it is matters: this plugin is not the thing granting
+        // anything, and the label should not let anyone think otherwise.
+        Chip {
+          visible: root.daemonLocked
+          label: root.tr("daemon.openToggle")
+          selected: false
+          foreground: root.foreground
+          dim: root.dim
+          fontFamily: root.fontFamily
+          onClicked: if (root.service) root.service.openAccessSetting(root.monitorName)
+        }
       }
 
       // --------------------------------------------------------- list

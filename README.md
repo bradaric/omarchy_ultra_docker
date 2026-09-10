@@ -121,8 +121,11 @@ To get the live mosaic, pick one:
   socket path; it shells out to `docker`, which follows `DOCKER_HOST`, so it
   works with no configuration here.
 - **`Setup > Security > Sudoless Docker`** — Omarchy's own opt-in. Convenient,
-  and it is passwordless root for everything running as you. Omarchy shows the
-  warning and asks; this plugin never runs it for you.
+  and it is passwordless root for everything running as you. The panel has a
+  button that takes you straight there when it has no access; it opens Omarchy's
+  menu route, and Omarchy is what shows the warning, asks, and reboots. This
+  plugin never runs it for you, and ships no `usermod`, `gpasswd`, `setfacl`,
+  `sudo` or `pkexec` anywhere.
 
 ## Using it
 
@@ -351,7 +354,7 @@ is 30 seconds for a reason.
 node test_docker.js
 ```
 
-214 checks, no framework, no network, no daemon. `fixtures/` holds real
+215 checks, no framework, no network, no daemon. `fixtures/` holds real
 `docker ps` and `docker stats` output; the tests run against that.
 
 See `CLAUDE.md` for how the pieces fit and what has already bitten.

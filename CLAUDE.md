@@ -43,7 +43,7 @@ grim -g "<x>,<y> <w>x30" - | magick - -scale 800% /tmp/bar.png
 
 ## Checks
 
-`node test_docker.js` — 214 checks, plain node, no framework, no network, no daemon.
+`node test_docker.js` — 215 checks, plain node, no framework, no network, no daemon.
 
 `Docker.js` is a QML `.js` resource and cannot carry `export`, so the test file
 `eval`s it into scope. Keep `Docker.js` free of QML types (`Process`, `Timer`,
@@ -547,8 +547,23 @@ you passwordless root" is applying pressure through convenience, so:
 - **The lazydocker button delegates to `omarchy-launch-docker-tui`** when we have
   no key. That costs the per-stack scoping and is worth it — our own `pkexec`
   would rebuild the shortcut Omarchy just closed, with none of the warning.
-- **The plugin ships no escalation.** No `usermod`, no `gpasswd`, and it never
-  runs the opt-in for the user. A test asserts it.
+- **The plugin ships no escalation.** No `usermod`, no `gpasswd`, no `setfacl`,
+  and it never runs the opt-in for the user. A test asserts it, reading the code
+  with comments stripped so the rule can still be explained where it applies.
+- **It points at the switch and does not throw it.** Describing the fix and
+  making someone go and find it are not the same thing, and a panel that only
+  describes it is still a widget that does not work. The button summons
+  Omarchy's own menu route, `setup.security.sudoless-docker`, whose action opens
+  Omarchy's floating terminal running its setup command — which prints the
+  passwordless-root warning, asks with `gum`, and handles the reboot. Navigation,
+  not execution: the privilege, the warning and the confirmation stay Omarchy's.
+
+  For contrast, of the eight Docker plugins in the marketplace registry, none of
+  the other seven use `omarchy-sudo-docker` or `omarchy-launch-docker-tui`. Two
+  answer this in the README with `sudo usermod -aG docker $USER`, and one ships a
+  button that runs `pkexec sh -c 'usermod -aG docker …; setfacl -m u:…:rw
+  /var/run/docker.sock'` — granting the socket immediately, past the reboot
+  Omarchy leans on — while its README says it uses no `pkexec` at all.
 
 Rootless Docker is the recommended way to get the full widget: nothing here
 names a socket path, so `DOCKER_HOST` is followed and it works unchanged.

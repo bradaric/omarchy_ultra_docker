@@ -1694,9 +1694,14 @@ check("the no-access text does not coach anyone towards root", () => {
     for (const lang of ["en", "pt"]) {
       setLanguage(lang)
       const hint = t("daemon.noAccessHint")
-      assert.ok(/rootless/i.test(hint), lang + " offers rootless")
-      assert.ok(/Setup > Security > Sudoless Docker/.test(hint), lang + " names the supported toggle")
+      assert.ok(/rootless/i.test(hint), lang + " offers rootless first")
       assert.ok(/root/i.test(hint), lang + " says what the group costs")
+
+      // The route used to be spelled out here and is a button now. It still has
+      // to say whose setting it is: this plugin grants nothing, and a label
+      // that lets someone think otherwise is the whole problem in miniature.
+      assert.ok(/omarchy/i.test(t("daemon.openToggle")), lang + " names whose setting it is")
+      assert.ok(/sudoless/i.test(t("daemon.openToggle")), lang + " names the setting")
 
       // The bare state line stays a state, not an instruction.
       assert.ok(!/group/i.test(t("daemon.noAccess")), lang + " does not ask about groups")
@@ -1734,6 +1739,35 @@ check("the daemon controls are hidden rather than dead", () => {
   assert.strictEqual(canControlDaemon(false), true)
 })
 
+check("the panel points at the switch and never throws it", () => {
+  // Saying "opt in at Setup > Security > Sudoless Docker" and leaving someone to
+  // go find it is still a widget that does not work. The other six Docker
+  // plugins in the marketplace answer that by telling people to run
+  // `usermod -aG docker`, and one of them ships a button that runs it.
+  //
+  // This summons Omarchy's own menu entry. The entry's action is Omarchy's, and
+  // it is what warns about passwordless root, asks, and reboots — so the button
+  // is navigation, and the privilege decision never becomes ours.
+  const command = openAccessSettingCommand()
+
+  assert.deepStrictEqual(command,
+    ["omarchy", "menu", "summon", "setup.security.sudoless-docker"])
+  assert.strictEqual(command[0], "omarchy", "the shell's own entry point")
+  assert.ok(command.includes("summon"), "navigation, not execution")
+
+  const flat = command.join(" ")
+  assert.ok(!flat.includes("usermod"), "we do not edit groups")
+  assert.ok(!flat.includes("omarchy-setup-security-sudoless-docker"),
+    "we do not run the setup command directly — the menu does, with its warning")
+
+  // Word-boundary, not substring: the route is literally called
+  // "sudoless-docker", and `includes("sudo")` matches the word that means the
+  // opposite of what it is looking for.
+  for (const part of command) {
+    assert.ok(!/^(sudo|pkexec|su|doas)$/.test(part), "nothing here elevates: " + flat)
+  }
+})
+
 check("the plugin ships no privilege escalation of its own", () => {
   // The one rule that does not bend: nothing here adds anyone to a group, and
   // nothing here runs the setup command for them. That decision, and the
@@ -1741,11 +1775,20 @@ check("the plugin ships no privilege escalation of its own", () => {
   const files = ["Docker.js", "Service.qml", "Panel.qml",
     "bin/omarchy-docker-ask-agent", "bin/omarchy-docker-ask-agent-stack"]
 
+  // Comments stripped first. Naming the forbidden command in a comment is how
+  // the rule gets documented; scanning raw text would forbid explaining it.
+  const withoutComments = text => text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map(line => line.replace(/(^|\s)\/\/.*$/, ""))
+    .join("\n")
+
   for (const path of files) {
-    const body = fs.readFileSync(__dirname + "/" + path, "utf8")
-    assert.ok(!/usermod/.test(body), path + " never edits groups")
-    assert.ok(!/gpasswd/.test(body), path + " never edits groups")
-    assert.ok(!/omarchy-setup-security-sudoless-docker/.test(body),
+    const code = withoutComments(fs.readFileSync(__dirname + "/" + path, "utf8"))
+    assert.ok(!/usermod/.test(code), path + " never edits groups")
+    assert.ok(!/gpasswd/.test(code), path + " never edits groups")
+    assert.ok(!/setfacl/.test(code), path + " never rewrites socket permissions")
+    assert.ok(!/omarchy-setup-security-sudoless-docker/.test(code),
       path + " never runs the opt-in for the user")
   }
 })

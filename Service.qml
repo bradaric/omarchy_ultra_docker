@@ -604,6 +604,13 @@ Item {
     launch(Docker.lazydockerCommand(group, root.needsSudo))
   }
 
+  // Navigates to Omarchy's own menu entry. Runs nothing privileged: the entry's
+  // action is Omarchy's, and it is the one that warns, asks and reboots.
+  function openAccessSetting(monitor) {
+    focusMonitor(monitor)
+    launch(Docker.openAccessSettingCommand())
+  }
+
   readonly property string askAgentScript: scriptPath("bin/omarchy-docker-ask-agent")
   readonly property string askAgentStackScript: scriptPath("bin/omarchy-docker-ask-agent-stack")
 
