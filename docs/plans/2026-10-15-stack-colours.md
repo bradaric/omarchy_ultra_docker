@@ -723,6 +723,27 @@ Accepted and reflected in the plan:
   fixed.** B2 now says the half-gap can land on a half device pixel and that
   this is accepted for a translucent band, unlike a cell edge.
 
+Third review (plan conformance, of the implementation): CONFORMS WITH NOTED
+DEVIATIONS. No blockers, no majors.
+
+- **A multi-column lone block was tested only at span 1.** The only-block width
+  `S - gapPx` was asserted only where it collapses to `cellPx`. Part C already
+  lists the case; only the test was short. A follow-up adds one assertion for a
+  two-column lone block (`cellPx = 4, gapPx = 2` -> `width === 10`).
+- **`bandSignature` uses `JSON.stringify`** - that is what this plan now
+  specifies (B5), for the collision reason above, so it is not a deviation from
+  the current plan.
+- **Undocumented but harmless additions** accepted: lifting `gridWidth` and
+  `blockGapHere` in `plan()` alongside the row height, the half-device-pixel
+  band-edge comment, and the rewritten bar-button comment. None change
+  behaviour.
+- **`onBandSignatureChanged` emits `blockUnhovered()` with Colour stacks off**
+  (the plan says to gate the signals on the switch). Accepted, no change: the
+  host's `hideTooltip` returns early when the target is neither the shown nor
+  the pending tooltip target (`plugins/bar/Bar.qml`, `hideTooltip`), and nothing
+  else in the panel uses the mosaic as a tooltip target, so the call is a no-op.
+  Gating it would be tidier and buys nothing.
+
 # Out of scope
 
 - Per-container colours.
