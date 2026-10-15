@@ -32,6 +32,10 @@ to recall is a legend that does not work:
 their own columns top to bottom, and a wider gap marks where that stack ends.
 That is the whole reason you can point at a stack in a strip this small: without
 the wider gap, adjacency is not separation and the mosaic is just confetti.
+Turn on **Colour stacks** and each block also gets a tinted band behind it, a
+colour derived from the stack's name so it never changes as containers come and
+go, with the matching accent on its header in the popup. The cells keep meaning
+state; the band only says which stack you are looking at.
 
 Cells never move when a container changes state. The order is `(project,
 service, name)` and nothing sorts by health, because a cell that jumps when
@@ -43,8 +47,10 @@ which without reading anything.
 the width of the widest value it can show, so the bar never shifts as the number
 changes.
 
-**Nothing appears on hover.** The mosaic is the summary; a tooltip would be a
-second, worse copy of the popup.
+**Nothing appears on hover by default.** The mosaic is the summary; a tooltip
+would be a second, worse copy of the popup. With **Colour stacks** on, hovering
+the mosaic names the stack under the pointer — the group, never the containers,
+and only the one thing the band cannot say in colour.
 
 Click it and you get the rest:
 
@@ -314,6 +320,7 @@ The options worth knowing about:
 | `cellSize` | 4 | smaller cells buy rows, and rows buy width |
 | `maxWidth` | 160 | where `auto` gives up and collapses to stacks |
 | `groupStacks` | true | off drops the stack blocks for plain balanced rows |
+| `groupColours` | false | a tinted band per stack in the bar, an accent on its popup header, and the stack's name on hover |
 | `stackGap` | 3 | how far apart the stack blocks sit |
 | `palette` | `theme` | fixed cell colours instead of the theme's — `traffic`, `ember`, `ocean`, `violet`, `mono`, or `custom` |
 | `paletteCustom` | — | three hex values for `custom`, in order: healthy, warning, broken |
@@ -354,7 +361,7 @@ is 30 seconds for a reason.
 node test_docker.js
 ```
 
-217 checks, no framework, no network, no daemon. `fixtures/` holds real
+225 checks, no framework, no network, no daemon. `fixtures/` holds real
 `docker ps` and `docker stats` output; the tests run against that.
 
 See `CLAUDE.md` for how the pieces fit and what has already bitten.

@@ -385,6 +385,8 @@ var STRINGS = {
     "settings.help.stackGap": "O espaço extra que marca onde uma stack do compose termina e a próxima começa.",
     "settings.label.groupStacks": "Agrupar containers por stack",
     "settings.help.groupStacks": "Desligado espalha todos os containers em linhas simples, sem fronteira entre stacks.",
+    "settings.label.groupColours": "Colorir stacks",
+    "settings.help.groupColours": "Uma faixa tingida atrás de cada stack do compose na barra, e um acento igual nos cabeçalhos do popup. Saudável, atenção e quebrado continuam sendo a cor da célula.",
     "settings.label.maxWidth": "Largura máxima (px)",
     "settings.help.maxWidth": "Acima disso o mosaico colapsa para uma célula por stack, e depois para um bloco só.",
     "settings.label.pulseRestarting": "Pulsar containers reiniciando",

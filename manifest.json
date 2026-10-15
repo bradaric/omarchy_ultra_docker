@@ -37,6 +37,7 @@
       "cellSize": 4,
       "stackGap": 3,
       "groupStacks": true,
+      "groupColours": false,
       "maxWidth": 160,
       "notifications": true,
       "engine": "auto",
@@ -147,6 +148,13 @@
         "label": "Group containers by stack",
         "description": "Off lays every container out in plain balanced rows, with no stack boundaries.",
         "defaultValue": true
+      },
+      {
+        "key": "groupColours",
+        "type": "boolean",
+        "label": "Colour stacks",
+        "description": "A tinted band behind each compose stack in the bar, and a matching accent in the popup headers. Healthy, warning and broken stay the cell colour.",
+        "defaultValue": false
       },
       {
         "key": "maxWidth",

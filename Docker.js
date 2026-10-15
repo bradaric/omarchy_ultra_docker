@@ -649,6 +649,82 @@ function mosaicWidth(grid, cellPx, gapPx, blockGapPx) {
     + blockGap * Math.max(0, grid.blocks - 1)
 }
 
+// A stable hue per stack name, so a stack keeps its colour as containers start
+// and stop. FNV-1a for the hash, then the golden ratio for the spread: adjacent
+// names in the mosaic's alphabetical order land far apart on the wheel.
+function groupHue(name) {
+  var text = String(name || "")
+  var hash = 2166136261
+  for (var i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 16777619) >>> 0
+  }
+  return Math.floor((hash * 0.618033988749895 % 1) * 360)
+}
+
+// One background band per stack block, in the mosaic's own pixel space. Half a
+// cell gap on each side so a one-container stack is wider than its own cell,
+// clamped to the mosaic so the outermost bands do not overhang it.
+//
+// cellPx and gapPx are already device-snapped, so the band lands on the device
+// grid too - except for the half-gap, which is half a device pixel when gapPx is
+// odd. The renderer only shifts by snapX/snapY, so a band edge can land on a
+// half device pixel. That is accepted here and must NOT be "fixed" the way a
+// cell is: the band is a translucent background, so a soft edge reads as a tint,
+// whereas a fractional CELL edge merges two cells into one shape.
+//
+// The two clamps interact, so the width depends on position: an interior block
+// is span*(cell+gap); the first and last blocks lose half a gap; a lone block,
+// both clamps at once, is span*(cell+gap) - gap. A one-container interior stack
+// is therefore wider than its own cell, a first/last one shows past one side,
+// and a lone one is exactly its cell - accepted, since nothing distinguishes it
+// and widening it would push the band past the bar.
+function mosaicBands(cells, placements, cellPx, gapPx, blockGapPx, heightPx, widthPx) {
+  var out = []
+  if (!placements || placements.length === 0) return out
+
+  var spans = []
+  for (var i = 0; i < placements.length; i++) {
+    var p = placements[i]
+    var key = Number(p.block) || 0
+    if (!spans[key]) spans[key] = { min: p.column, max: p.column, group: cells[i].group }
+    if (p.column < spans[key].min) spans[key].min = p.column
+    if (p.column > spans[key].max) spans[key].max = p.column
+  }
+
+  var half = gapPx / 2
+  for (var b = 0; b < spans.length; b++) {
+    var span = spans[b]
+    if (!span) continue
+    var left = Math.max(0, span.min * (cellPx + gapPx) + b * blockGapPx - half)
+    var right = span.max * (cellPx + gapPx) + b * blockGapPx + cellPx + half
+    if (widthPx > 0) right = Math.min(right, widthPx)
+    out.push({
+      block: b,
+      group: span.group,
+      hue: groupHue(span.group),
+      left: left,
+      width: right - left,
+      height: heightPx
+    })
+  }
+  return out
+}
+
+// Which band a mosaic-local x falls in. Containment only, so the block gap
+// between two bands resolves to null rather than guessing a neighbour — the
+// renderer keeps the last name across the gap instead of hiding the tooltip.
+function bandAt(bands, x) {
+  if (!bands || bands.length === 0) return null
+  var point = Number(x)
+  if (!isFinite(point)) return null
+  for (var i = 0; i < bands.length; i++) {
+    var band = bands[i]
+    if (point >= band.left && point < band.left + band.width) return band
+  }
+  return null
+}
+
 // Kept as the single entry point the renderer calls.
 function layout(count, maxRows) {
   return balancedLayout(count, maxRows)
@@ -721,6 +797,12 @@ function planMosaic(containers, options) {
     while (cell > 1 / (dpr || 1) && cell * rows + gap * (rows - 1) > height) {
       cell = floorToDevice(cell - 1 / (dpr || 1), dpr)
     }
+
+    var blockGapHere = mode === "container" && grouped ? blockGap : 0
+    var gridWidth = mosaicWidth(grid, cell, gap, blockGapHere)
+    // What the rows actually occupy after rounding, so the caller can centre
+    // the mosaic in the space it was given.
+    var gridHeight = rows * cell + gap * (rows - 1)
     return {
       mode: mode,
       cells: cells,
@@ -728,12 +810,14 @@ function planMosaic(containers, options) {
       rows: rows,
       cellPx: cell,
       gapPx: gap,
-      blockGapPx: mode === "container" && grouped ? blockGap : 0,
-      width: mosaicWidth(grid, cell, gap,
-        mode === "container" && grouped ? blockGap : 0),
-      // What the rows actually occupy after rounding, so the caller can centre
-      // the mosaic in the space it was given.
-      height: rows * cell + gap * (rows - 1)
+      blockGapPx: blockGapHere,
+      width: gridWidth,
+      height: gridHeight,
+      // Bands only exist where stacks are drawn as separate blocks; the
+      // collapsed modes already separate them, one cell each.
+      bands: mode === "container" && grouped
+        ? mosaicBands(cells, grid.cells, cell, gap, blockGap, gridHeight, gridWidth)
+        : []
     }
   }
 
@@ -898,7 +982,7 @@ function aggregateStats(containers, statsById) {
 var SETTINGS_SECTIONS = [
   { key: "look", keys: [
     "palette", "paletteCustom", "cellSize", "cellGap", "stackGap",
-    "groupStacks", "maxWidth", "pulseRestarting"
+    "groupStacks", "groupColours", "maxWidth", "pulseRestarting"
   ] },
   { key: "content", keys: [
     "groupBy", "stackOrder", "showStopped", "hideProjects"

@@ -163,31 +163,24 @@ Panel {
   // QML would mean a setting could exist in one and not the other, which is
   // the bug the whole thing is meant to prevent.
   readonly property string pluginId: moduleName || "avila.ultra-docker"
-  readonly property var pluginRegistry: bar && bar.shell ? bar.shell.pluginRegistry : null
 
-  readonly property var settingsSchema: {
-    // Read the revision so this re-evaluates when a plugin rescan changes the
-    // manifest. Without it the screen would keep rendering the schema that was
-    // loaded at startup.
-    var revision = root.pluginRegistry ? root.pluginRegistry.registryRevision : 0
-    if (!root.pluginRegistry) return []
-    var installed = root.pluginRegistry.installedPlugins || ({})
-    var manifest = installed[root.pluginId]
-    if (!manifest || !manifest.barWidget) return []
-    return manifest.barWidget.schema || []
-  }
+  // Built from the plugin's own manifest, read out of the shell's registry by
+  // the service. The bar widget cannot reach the registry itself: its
+  // `bar.shell` is a scoped PluginShellApi with no pluginRegistry on it.
+  readonly property var settingsSchema: service ? service.settingsSchema : []
 
   readonly property var settingsSections: Docker.settingsSections(settingsSchema)
   readonly property int changedSettings:
     Docker.changedSettingCount(settings || ({}), settingsSchema)
 
-  // Writing goes straight through the registry rather than out to
-  // `omarchy bar set` and back: the bar patches inline settings in place
-  // (BarModel.inlineSettingsDelta) instead of rebuilding widgets, so the value
-  // lands in shell.json and every binding here re-evaluates without the panel
-  // being torn down under the user mid-edit.
-  readonly property bool canWriteSettings: pluginRegistry
-    && typeof pluginRegistry.setBarWidget === "function"
+  // Writing goes through the scoped shell's `updateEntryInline`, which patches
+  // the widget's entry in place (BarModel.inlineSettingsDelta) instead of
+  // rebuilding widgets, so the value lands in shell.json and every binding here
+  // re-evaluates without the panel being torn down under the user mid-edit.
+  // The root registry (`setBarWidget`) is not reachable from a bar widget.
+  readonly property bool canWriteSettings:
+    !!(root.bar && root.bar.shell
+       && typeof root.bar.shell.updateEntryInline === "function")
 
   property bool settingsOpen: false
   property string settingsError: ""
@@ -293,30 +286,65 @@ Panel {
     if (opened) root.takeKeys()
   }
 
-  function writeSetting(key, value) {
+  function cloneSettings() {
+    var out = ({})
+    var current = root.settings || ({})
+    for (var k in current) out[k] = current[k]
+    return out
+  }
+
+  // The single write path. `updateEntryInline` replaces the widget's whole entry
+  // with `{id, ...merged}`, so callers hand in a COMPLETE object, never one key.
+  // It also returns false for "no change" as readily as for a refusal, so the
+  // comparison is what tells the two apart before the call.
+  function writeSettings(merged) {
     // A shell that does not offer the call is not an error to swallow: every
     // control would look live and do nothing, which is the exact failure this
     // plugin has hit before. Say so, and name the command that does work.
     if (!root.canWriteSettings) {
       root.settingsError = root.tr("settings.readOnly", { id: root.pluginId })
-      return
+      return false
     }
-    var error = root.pluginRegistry.setBarWidget(root.pluginId, key, value, ({}))
-    root.settingsError = error
-      ? root.tr("settings.writeFailed", { error: error }) : ""
+    if (JSON.stringify(merged) === JSON.stringify(root.settings || ({}))) {
+      root.settingsError = ""
+      return true
+    }
+    var ok = root.bar.shell.updateEntryInline(root.pluginId, merged)
+    root.settingsError = ok
+      ? "" : root.tr("settings.writeFailed", { error: "updateEntryInline" })
+    return ok
+  }
+
+  function writeSetting(key, value) {
+    var merged = root.cloneSettings()
+    merged[String(key)] = value
+    root.writeSettings(merged)
   }
 
   function resetSetting(field) {
     if (field) root.writeSetting(String(field.key), field.defaultValue)
   }
 
+  // One merged write, not a loop of `writeSetting`: each write rebuilds from
+  // `root.settings`, and the host may not refresh it synchronously between two
+  // calls in the same tick. Looping could then merge onto a stale object and
+  // silently revert the earlier resets, so "Reset everything" would reset one
+  // field and lose the rest. A single write removes the dependency entirely.
   function resetAllSettings() {
     var fields = root.settingsSchema
+    var current = root.settings || ({})
+    var merged = root.cloneSettings()
+    var changed = false
     for (var i = 0; i < fields.length; i++) {
-      if (!Docker.settingIsDefault(root.settings || ({}), fields[i])) {
-        root.resetSetting(fields[i])
-      }
+      if (Docker.settingIsDefault(current, fields[i])) continue
+      merged[String(fields[i].key)] = fields[i].defaultValue
+      changed = true
     }
+    if (!changed) {
+      root.settingsError = ""
+      return
+    }
+    root.writeSettings(merged)
   }
 
   // The words for one field. English is the manifest's own, which is where it
@@ -346,6 +374,7 @@ Panel {
   readonly property int cellGap: Math.max(1, Number(setting("cellGap", 2)))
   readonly property int stackGap: Math.max(0, Number(setting("stackGap", 3)))
   readonly property bool groupStacks: setting("groupStacks", true) === true
+  readonly property bool groupColours: setting("groupColours", false) === true
   readonly property int maxWidth: Math.max(20, Number(setting("maxWidth", 160)))
   readonly property bool pulseRestarting: setting("pulseRestarting", true) === true
   // Read one by one rather than handing the whole settings object over: the
@@ -589,13 +618,14 @@ Panel {
     hasVisualContent: true
     active: root.opened
     useActiveColor: false
-    // No hover tooltip on purpose. What it said was a second, worse copy of the
-    // panel: the mosaic already shows every state at a glance, and one click
-    // gives the names. What it actually did was flicker — the label rotates
-    // through its metrics every few seconds, the widget's implicit width
-    // changes with the value, and the pointer ends up crossing the button's own
-    // edge, so the host saw exit and enter and rebuilt the tooltip under a
-    // cursor that never moved. Left empty, `Bar.showTooltip` returns early.
+    // The button's own tooltip is left empty on purpose. What it said was a
+    // second, worse copy of the panel: the mosaic already shows every state at
+    // a glance, and one click gives the names. What it actually did was flicker
+    // — the label rotates through its metrics every few seconds, the widget's
+    // implicit width changes with the value, and the pointer ends up crossing
+    // the button's own edge, so the host saw exit and enter and rebuilt the
+    // tooltip under a cursor that never moved. Left empty, the button gets no
+    // tooltip. The mosaic carries its own, stationary one under Colour stacks.
     fixedWidth: root.vertical ? root.barSize : content.implicitWidth + Style.space(17)
     fixedHeight: root.barSize
 
@@ -639,9 +669,21 @@ Panel {
         visible: root.daemonOk && root.resolved.cells.length > 0
         plan: root.resolved
         pulseRestarting: root.pulseRestarting
+        groupColours: root.groupColours
         okColor: root.okColor
         warnColor: root.warnColor
         badColor: root.badColor
+
+        // Identity, not state: the tooltip names the stack under the pointer.
+        // Gated at the Mosaic (the HoverHandler is off with the feature), so
+        // this is only ever reachable with Colour stacks on.
+        onBlockHovered: function(name) {
+          if (root.bar && root.bar.showTooltip)
+            root.bar.showTooltip(mosaic, name === Docker.LOOSE ? root.tr("group.loose") : name)
+        }
+        onBlockUnhovered: function() {
+          if (root.bar && root.bar.hideTooltip) root.bar.hideTooltip(mosaic)
+        }
       }
 
       // Daemon down, or simply nothing running: both need a mark, and they are
@@ -1803,6 +1845,20 @@ Panel {
                 color: stackHover.hovered
                   ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
                   : "transparent"
+
+                // The same hue the bar band carries, so the stack you hovered
+                // in the mosaic is the header you find here. The state dot
+                // stays: identity and state are two different readings.
+                Rectangle {
+                  visible: root.groupColours
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: Style.space(3)
+                  height: parent.height - Style.space(6)
+                  radius: width / 2
+                  color: Qt.hsla(Docker.groupHue(stackBlock.modelData.project) / 360,
+                                 0.55, 0.55, 0.95)
+                }
 
                 HoverHandler {
                   id: stackHover

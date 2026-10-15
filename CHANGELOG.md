@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Colour stacks** — an opt-in tinted band behind each compose stack in the bar
+  mosaic, a matching accent on the stack's header in the popup, and the stack's
+  name on hover. The hue is derived from the stack name, so it never changes as
+  containers start and stop. Cells keep meaning state; the band only says which
+  stack you are looking at.
+
+### Fixed
+
+- **The settings screen rendered empty**, and writes had nowhere to go. A
+  third-party bar widget's `bar.shell` is a scoped `PluginShellApi` with no
+  `pluginRegistry` on it, so the screen never found the manifest schema. The
+  schema is now read from the service, which the shell does inject a scoped
+  registry into, and writes go through `bar.shell.updateEntryInline`.
+
 ## 1.1.0
 
 A settings screen, a keyboard, and a plugin that works on Omarchy's current
