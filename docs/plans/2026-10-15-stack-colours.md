@@ -366,10 +366,16 @@ bar. The two rules interact, so the expected width depends on the band's
 position - see the table below the code.
 
 ```js
-// One background band per stack block, in the mosaic's own pixel space (the
-// renderer applies the pixel snap). Half a cell gap on each side so a
-// one-container stack is wider than its own cell, clamped to the mosaic so the
-// outermost bands do not overhang it.
+// One background band per stack block, in the mosaic's own pixel space. Half a
+// cell gap on each side so a one-container stack is wider than its own cell,
+// clamped to the mosaic so the outermost bands do not overhang it.
+//
+// cellPx and gapPx are already device-snapped, so the band lands on the device
+// grid too - except for the half-gap, which is half a device pixel when gapPx is
+// odd. The renderer only shifts by snapX/snapY, so a band edge can land on a
+// half device pixel. That is accepted here and must NOT be "fixed" the way a
+// cell is: the band is a translucent background, so a soft edge reads as a tint,
+// whereas a fractional CELL edge merges two cells into one shape.
 function mosaicBands(cells, placements, cellPx, gapPx, blockGapPx, heightPx, widthPx) {
   var out = []
   if (!placements || placements.length === 0) return out
@@ -543,13 +549,17 @@ readonly property bool tooltipHovered: blockHover.hovered && root.visible
 
     ```qml
     // The bands, not the plan: a state refresh that leaves the layout alone
-    // must not hide the tooltip under a stationary pointer.
+    // must not hide the tooltip under a stationary pointer. Built as JSON,
+    // never delimiter-joined: group names come from compose labels, which are
+    // hostile input, and a name containing ":" or "|" could otherwise
+    // serialise to the same string as a different layout and swallow the
+    // clear.
     readonly property string bandSignature: {
       var bands = root.plan.bands || []
       var parts = []
       for (var i = 0; i < bands.length; i++)
-        parts.push(bands[i].group + ":" + bands[i].left + ":" + bands[i].width)
-      return parts.join("|")
+        parts.push([bands[i].group, bands[i].left, bands[i].width])
+      return JSON.stringify(parts)
     }
 
     onBandSignatureChanged: {
@@ -638,6 +648,11 @@ Add checks; the file is plain node, `node test_docker.js`.
    presence is not a failure (A4).
 5. Turn **Colour stacks** on; confirm the mosaic shows bands and the popup
    headers show accents; hover a band and confirm the tooltip names the stack.
+   Then move the pointer straight from one band to the next: the name must
+   change to the new stack. The host clears and re-arms its tooltip on every
+   `showTooltip` (it has a short show delay), so a brief gap on the move is
+   expected; if the name does not change, or the gap is worse than a gap, drop
+   B5 rather than ship it.
 6. The tooltip does not clear on its own. Hold the pointer still over a band:
    - across a state refresh that leaves the layout unchanged (a `docker events`
      burst elsewhere on the machine, or the 60s safety poll) the name must
@@ -671,6 +686,42 @@ Add checks; the file is plain node, `node test_docker.js`.
   (`settings.readOnly`), rather than looking live and doing nothing.
 - **`tooltipHovered` is load-bearing**: without it `Bar.showTooltip` is a silent
   no-op. B5 states it; the manual step 5 is the check.
+
+# Review findings and disposition
+
+After the first implementation pass, the code reviewers raised no blockers. Four
+items were settled by reading `/usr/share/omarchy/shell/` directly (no code
+change); two were accepted and are reflected above.
+
+Settled from the shell source, no change needed:
+
+- **Schema reactivity after a rescan (raised as a major) - rejected.**
+  `PluginRegistryApi.installedPlugins` is a binding over its own `manifest`
+  property, and `syncPluginApis` (`shell.qml`, ~line 861) reassigns
+  `registryApi.manifest` on `pluginRegistry.pluginsChanged()`, which a rescan
+  emits. So `installedPlugins` re-evaluates and `Service.settingsSchema` with
+  it. The old `registryRevision` read is not what provides this.
+- **Tooltip markup from a label-derived name - rejected.**
+  The host's tooltip label sets `textFormat: Text.PlainText`
+  (`plugins/bar/Bar.qml`, the tooltip bubble's `Text`), so a crafted
+  `com.docker.compose.project` cannot inject markup.
+- **Cross-band retarget - rejected.** `Bar.showTooltip` calls `clearTooltip()`
+  first, so a repeat call for the same target replaces the text, and the plugin
+  only calls it when the name changes. Part D step 5 now exercises the
+  transition.
+- **`gridHeight`/`gridWidth` instead of the plan's `height` - accepted as
+  better**; it avoids shadowing the `settings.heightPx` local.
+- **Band delegates rebuilt on every state read - accepted, no action.** Cheap
+  at desktop stack counts, and the tooltip no longer keys off `plan`.
+
+Accepted and reflected in the plan:
+
+- **Band-signature collision (raised as a minor) - fixed in B5.** The signature
+  is built with `JSON.stringify`, not delimiter concatenation, because group
+  names come from compose labels and are hostile input.
+- **Band edges are not device-snapped (raised as a minor) - documented, not
+  fixed.** B2 now says the half-gap can land on a half device pixel and that
+  this is accepted for a translucent band, unlike a cell edge.
 
 # Out of scope
 
