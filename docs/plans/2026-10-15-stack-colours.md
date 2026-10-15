@@ -1,6 +1,27 @@
 # Stack colours, and the settings screen that never rendered
 
-Status: approved 2026-10-15.
+Status: approved 2026-10-15; revised 2026-10-15 after plan review.
+
+Revision notes (what changed and why):
+
+- **Ordering of the settings key and its Portuguese strings is now a single
+  step.** The manifest key and `I18n.js`'s pt label/help must land together or
+  the suite goes red the moment the key exists. See B1/B6.
+- **Part C's band-width assertions are now per-position.** The `left`/`right`
+  clamps mean the first, last and only blocks lose half a gap; the old
+  single-formula assertion was wrong for them. See B2 and Part C.
+- **`resetAllSettings` no longer loops `writeSetting`.** Each write merges from
+  `root.settings`, which does not refresh synchronously, so a loop could lose
+  updates. One merged write instead. See A3.
+- **The tooltip's host contract and its stale-text cases are specified.**
+  `Bar.showTooltip` refuses a target without `tooltipHovered`, and bands
+  changing under a stationary pointer left a stale name. See B5.
+
+Shell references: all shell paths below are absolute under
+`/usr/share/omarchy/shell/` on Omarchy `4.0.0.alpha`. Any bare file name
+(`Bar.qml`, `shell.qml`, `PluginShellApi.qml`, `PluginRegistryApi.qml`) is that
+directory. Line numbers were correct at that version and may drift; the symbol
+names are the reliable part.
 
 ## Problem
 
@@ -17,7 +38,7 @@ Two things, one of which turns out to be a prerequisite for the other.
 
 ## Root cause of (1)
 
-`Panel.qml:168-178` builds the settings field list from:
+`Panel.qml` builds the settings field list from:
 
 ```
 bar.shell.pluginRegistry.installedPlugins[pluginId].barWidget.schema
@@ -25,11 +46,11 @@ bar.shell.pluginRegistry.installedPlugins[pluginId].barWidget.schema
 
 That path does not exist for a **third-party** bar widget on this shell:
 
-- `../shell/plugins/bar/Bar.qml:2002` - a third-party widget's `bar` is a
-  `PluginBarApi` facade, not the Bar.
-- `Bar.qml:229-243` sets that facade's `shell` to
-  `root.shell.pluginShellForId(...)` -> `shell.qml:676-682` ->
-  `createScopedPluginShell(...)`, which returns a `PluginShellApi`.
+- `plugins/bar/Bar.qml`, `injectProps` (~line 2002) - a third-party widget's
+  `bar` is a `PluginBarApi` facade, not the Bar.
+- `plugins/bar/Bar.qml`, `pluginBarApiFor` (~line 229) sets that facade's
+  `shell` to `root.shell.pluginShellForId(...)`; `shell.qml`,
+  `scopedPluginShellForId` (~line 676) returns a `PluginShellApi`.
 - `services/PluginShellApi.qml` has `serviceFor`, `summon`, `hide`, `toggle`,
   `isPluginOpen`, `updateEntryInline`, `mutateShellConfig` - and **no
   `pluginRegistry`**.
@@ -41,17 +62,18 @@ So `bar.shell.pluginRegistry` is `undefined`, `settingsSchema` is `[]`,
 The scoped registry object that *does* carry the manifest (`PluginRegistryApi`,
 whose `installedPlugins` includes `barWidget.schema`) is only injected when an
 entry point declares `pluginRegistry`. Bar widgets are not given it; **service
-entry points are** (`shell.qml:931-932`).
+entry points are** (`shell.qml`, `ensureService`, ~line 932).
 
-The same gap breaks writes. `Panel.qml:304` calls
+The same gap breaks writes. `Panel.qml` calls
 `pluginRegistry.setBarWidget(...)`, which for this plugin is unreachable. The
 reachable call is `bar.shell.updateEntryInline(id, settings)`
-(`PluginShellApi.qml:62` -> `shell.qml:1078`). It **replaces the whole entry**
-with `{id, ...settings}`, so it must be handed the current settings merged with
-the changed key, or every write wipes the other keys.
+(`services/PluginShellApi.qml` -> `shell.qml`, `updateEntryInline`, ~line
+1078). It **replaces the whole entry** with `{id, ...settings}`, so it must be
+handed the current settings merged with the changed key, or every write wipes
+the other keys.
 
 The `omarchy bar set` CLI still works, because it goes through the root registry
-(`shell.qml:1654`), not the facade.
+(`shell.qml` IPC `setBarWidget`, ~line 1654), not the facade.
 
 ## Goals
 
@@ -65,6 +87,9 @@ The `omarchy bar set` CLI still works, because it goes through the root registry
 
 - No per-container colour. Per stack only.
 - No colour in the collapsed modes (one cell per stack already separates them).
+- No tooltip where there are no bands: collapsed modes and `groupStacks` off.
+  There is no block boundary to point at, so there is nothing to name. Stated
+  here so it is a decision, not an oversight.
 - Cell fill stays semantic: healthy / warning / broken. The band is background,
   the cell is figure.
 - No upstream shell changes.
@@ -82,12 +107,36 @@ The `omarchy bar set` CLI still works, because it goes through the root registry
 
 ---
 
+# Note on the working tree
+
+A first implementation run was cancelled partway and may have left uncommitted
+changes (`git status` will say). If it did, **the plan is authoritative, not the
+tree**. Read the changes against this revision and reconcile:
+
+- `Service.qml`, `manifest.json`, `Docker.js` (`groupHue`, `mosaicBands`,
+  `bandAt`, `plan.bands`), `Mosaic.qml` and `Panel.qml`'s schema/write path may
+  already match Part A and Part B of this plan - keep what does.
+- Known gaps to check for, because the first draft of this plan was wrong here:
+  - `resetAllSettings` still looping `writeSetting` (A3).
+  - the tooltip not clearing when `plan` changes under a stationary pointer, and
+    the missing `tooltipHovered` property contract (B5).
+  - band-width tests asserting one formula or using tolerances instead of the
+    per-position widths, and no explicit lone-block case (Part C, B2).
+  - the pt strings for `groupColours` present and `SETTINGS_SECTIONS` updated,
+    or the suite is red (B1).
+
+Run `node test_docker.js` first: it tells you immediately whether the tree is in
+a coherent state or mid-edit.
+
+---
+
 # Part A - fix the settings screen
 
 ## A1. `Service.qml` - take the registry the shell does inject
 
 Service entry points get a scoped `PluginRegistryApi` injected when they declare
-the property (`shell.qml:932`). Add, right after `id: root`:
+the property (`shell.qml` `ensureService`, ~line 932). Add, right after
+`id: root`:
 
 ```qml
 // The shell injects a scoped, read-only registry view into service entry
@@ -105,12 +154,14 @@ readonly property var settingsSchema: {
 ```
 
 `installedPlugins` is keyed by `registry.pluginId`, so nothing is hardcoded. The
-scoped view is updated in place on a rescan (`shell.qml:867`), so the binding
+scoped view is updated in place on a rescan (`shell.qml`, the rescan handler
+that reassigns each `registryApi.manifest`, ~line 867), so the binding
 re-evaluates with a changed manifest.
 
 ## A2. `Panel.qml` - read the schema from the service
 
-Replace the `settingsSchema` binding (`Panel.qml:168-178`) with:
+Replace the `settingsSchema` binding (the `bar.shell.pluginRegistry` block in
+the settings section of `Panel.qml`) with:
 
 ```qml
 // Built from the plugin's own manifest, read out of the shell's registry by
@@ -119,65 +170,113 @@ Replace the `settingsSchema` binding (`Panel.qml:168-178`) with:
 readonly property var settingsSchema: service ? service.settingsSchema : []
 ```
 
-`settingsSections` and `changedSettings` (`Panel.qml:180-182`) stay as they are;
-they already derive from `root.settingsSchema`.
+`settingsSections` and `changedSettings` stay as they are; they already derive
+from `root.settingsSchema`.
 
 Keep `readonly property string pluginId` - it is still used in the read-only
 message and the IPC verb.
 
-Remove the now-dead `pluginRegistry` property (`Panel.qml:166`) **only after**
-A3 replaces its two remaining uses (`canWriteSettings`, `writeSetting`).
+Remove the now-dead `pluginRegistry` property **only after** A3 replaces its two
+remaining uses (`canWriteSettings`, `writeSetting`).
 
 ## A3. `Panel.qml` - write through the scoped shell
 
-`updateEntryInline` replaces the whole entry, so merge first and only write when
-something actually changed (it returns `false` both for "no change" and for a
-refused call, so we cannot tell them apart from its return value alone).
+`updateEntryInline` replaces the whole entry, so every write merges first and
+only calls out when something actually changed (it returns `false` both for "no
+change" and for a refused call, so its return value alone cannot tell them
+apart). One helper owns the write so the comparison and the error text live in
+one place:
 
 ```qml
 readonly property bool canWriteSettings:
   !!(root.bar && root.bar.shell
      && typeof root.bar.shell.updateEntryInline === "function")
 
-function writeSetting(key, value) {
+function cloneSettings() {
+  var out = ({})
+  var current = root.settings || ({})
+  for (var k in current) out[k] = current[k]
+  return out
+}
+
+// The single write path. `updateEntryInline` replaces the widget's whole entry
+// with `{id, ...merged}`, so callers hand in a COMPLETE object, never one key.
+function writeSettings(merged) {
   if (!root.canWriteSettings) {
     root.settingsError = root.tr("settings.readOnly", { id: root.pluginId })
-    return
+    return false
   }
-  var current = root.settings || ({})
-  var merged = ({})
-  for (var k in current) merged[k] = current[k]
-  merged[String(key)] = value
-  // updateEntryInline replaces the entry it finds, so the whole current
-  // settings object goes back with the one change, not just the change.
-  if (JSON.stringify(merged) === JSON.stringify(current)) {
+  if (JSON.stringify(merged) === JSON.stringify(root.settings || ({}))) {
     root.settingsError = ""
-    return
+    return true
   }
   var ok = root.bar.shell.updateEntryInline(root.pluginId, merged)
   root.settingsError = ok
     ? "" : root.tr("settings.writeFailed", { error: "updateEntryInline" })
+  return ok
+}
+
+function writeSetting(key, value) {
+  var merged = root.cloneSettings()
+  merged[String(key)] = value
+  root.writeSettings(merged)
 }
 ```
 
-`resetSetting` and `resetAllSettings` (`Panel.qml:309-320`) are unchanged; they
-call `writeSetting`.
+`resetSetting(field)` is unchanged - it calls `writeSetting(field.key,
+field.defaultValue)`.
+
+**`resetAllSettings` must not loop `writeSetting`.** Each write rebuilds from
+`root.settings`, and the host does not refresh `settings` synchronously between
+two calls in the same tick (`shell.qml` `persistShellConfig` reassigns
+`shellConfig`; `settings` reaches the widget on the next pass). The second call
+would merge onto the stale object and silently revert the first - "Reset
+everything" would reset one field and lose the rest, which is exactly the
+"controls look live and do nothing" failure this plugin warns about. Build one
+merged object and write once:
+
+```qml
+function resetAllSettings() {
+  var fields = root.settingsSchema
+  var current = root.settings || ({})
+  var merged = root.cloneSettings()
+  var changed = false
+  for (var i = 0; i < fields.length; i++) {
+    if (Docker.settingIsDefault(current, fields[i])) continue
+    merged[String(fields[i].key)] = fields[i].defaultValue
+    changed = true
+  }
+  if (!changed) {
+    root.settingsError = ""
+    return
+  }
+  root.writeSettings(merged)
+}
+```
 
 ## A4. Verify
 
 - `omarchy restart shell` (the shell runs the plugin it loaded at startup).
 - `omarchy-shell avila.ultra-docker settings` - expect the five sections and all
   fields, no errors.
-- Change one field; confirm the key lands in `~/.config/omarchy/shell.json`
-  under the widget's `bar.layout.<section>[]` entry, and that the other keys
-  already in that entry are still there.
-- Restart the shell again and confirm the value survives.
+- Change **three or more** fields; confirm each lands in
+  `~/.config/omarchy/shell.json` under the widget's `bar.layout.<section>[]`
+  entry, and that the other keys already in that entry are still there.
+- Press **Reset everything**; confirm the header says "All at their defaults"
+  and `shell.json` holds none of the changed keys (this is the check that
+  catches the lost-update loop described above).
+- Restart the shell again and confirm the values survive.
 
 ---
 
 # Part B - stack colours
 
-## B1. `manifest.json`
+## B1. `manifest.json` **and `I18n.js`** - one step
+
+These land **together, as the first step of Part B**. The moment the manifest
+key exists, the suite runs the "Portuguese label and help for every schema
+field" check against it and goes red until both pt strings are present. Do not
+land B1 without them.
 
 - Add to `barWidget.defaults` (next to `groupStacks`):
 
@@ -196,6 +295,22 @@ call `writeSetting`.
     "defaultValue": false
   }
   ```
+
+- Add to `I18n.js`'s **pt** table, next to `settings.label.groupStacks` /
+  `settings.help.groupStacks` (English comes from the manifest - that is the
+  existing rule for `settings.label.*` and `settings.help.*`; do not add an en
+  copy):
+
+  ```js
+  "settings.label.groupColours": "Colorir stacks",
+  "settings.help.groupColours": "Uma faixa tingida atrás de cada stack do compose na barra, e um acento igual nos cabeçalhos do popup. Saudável, atenção e quebrado continuam sendo a cor da célula.",
+  ```
+
+- Add `"groupColours"` to the `look` section's `keys` in `SETTINGS_SECTIONS`
+  (`Docker.js`), next to `groupStacks`. The "every manifest key is filed into a
+  named section" check fails otherwise.
+
+`node test_docker.js` must be green before moving on to B2.
 
 ## B2. `Docker.js` - the pure parts
 
@@ -226,15 +341,17 @@ Returns an integer in `[0, 360)`.
 
 Emit the bands from `planMosaic`'s `plan()` so the geometry is testable and
 `Mosaic.qml` only paints. One band per block, spanning that block's whole
-column range and the full mosaic height, expanded by half a gap so that a
-**single-container stack still shows a band** (otherwise the band is hidden
-behind its own cell).
+column range and the full mosaic height, expanded by **half a cell gap** on each
+side. The expansion is what makes a one-container stack visible at all;
+clamping it to the mosaic is what stops the first and last bands overhanging the
+bar. The two rules interact, so the expected width depends on the band's
+position - see the table below the code.
 
 ```js
 // One background band per stack block, in the mosaic's own pixel space (the
-// renderer applies the pixel snap). Half a gap on each side, so a stack with
-// one container still shows a band wider than its own cell; clamped to the
-// mosaic so the first and last bands do not overhang it.
+// renderer applies the pixel snap). Half a cell gap on each side so a
+// one-container stack is wider than its own cell, clamped to the mosaic so the
+// outermost bands do not overhang it.
 function mosaicBands(cells, placements, cellPx, gapPx, blockGapPx, heightPx, widthPx) {
   var out = []
   if (!placements || placements.length === 0) return out
@@ -268,9 +385,33 @@ function mosaicBands(cells, placements, cellPx, gapPx, blockGapPx, heightPx, wid
 }
 ```
 
-In `plan()` (`Docker.js:705-738`), lift the row height into a local
-(`var height = rows * cell + gap * (rows - 1)`, the value the return object
-already has) and add to the returned object:
+Expected width, where `span = maxCol - minCol + 1` and
+`S = span * (cellPx + gapPx)` (the unclamped width), `H = gapPx / 2`:
+
+| Band | Clamp that bites | Width |
+|---|---|---|
+| interior (not first, not last) | none | `S` |
+| first block (`minCol === 0`) | `left` pinned to 0 | `S - H` |
+| last block | `right` pinned to `plan.width` | `S - H` |
+| only block (first and last) | both | `S - 2H` = `S - gapPx` |
+
+Consequences to state in the code comment and to assert in the tests:
+
+- A one-container stack has `span = 1`, so `S = cellPx + gapPx` and its band is
+  `cellPx + gapPx` wide when it is an interior block (visible on both sides),
+  `cellPx + H` when it is the first or last block (visible on one side), and
+  `cellPx` when it is the **only** block.
+- That lone case is **accepted**: a mosaic with a single container has one band,
+  exactly its own cell, and nothing to distinguish it from. Do not widen the
+  formula to cover it - the extra half gap each side would push the band past
+  the bar, which is the clamp's whole purpose.
+- A lone block with more than one column is still visible: `S - gapPx` is the
+  cells' own row span, wider than the cells leave uncovered in their internal
+  gaps.
+
+In `plan()` (the inner `plan` function of `planMosaic`), lift the row height
+into a local (`var height = rows * cell + gap * (rows - 1)`, the value the
+return object already has) and add to the returned object:
 
 ```js
 bands: mode === "container" && grouped
@@ -281,7 +422,8 @@ bands: mode === "container" && grouped
 where `width` is the `mosaicWidth(...)` value the same object already computes.
 
 `cells[i].group` is set for both `byContainer` and `byStack` cells
-(`Docker.js:681-700`), and `blockLayout` gives every cell a `block` index.
+(`Docker.js`, `planMosaic`), and `blockLayout` gives every cell a `block`
+index.
 
 ## B3. `Mosaic.qml` - paint the bands
 
@@ -312,11 +454,13 @@ Bands and cells must use the same `snapX`/`snapY`.
 ## B4. `Panel.qml` - pass through, and the popup accent
 
 - Add `readonly property bool groupColours: setting("groupColours", false) === true`
-  next to the other `look` settings (`Panel.qml:344-350`).
-- Pass `groupColours: root.groupColours` to the `Mosaic` (`Panel.qml:634-645`).
-- Popup stack header (`Panel.qml:1799-1850`): add a small rounded accent bar at
-  the left edge of the header `Rectangle`, keeping the existing state dot
-  (`Panel.qml:1841-1850`) so state and identity stay separate readings:
+  next to the other `look` settings (the `readonly property bool groupStacks`
+  block in `Panel.qml`).
+- Pass `groupColours: root.groupColours` to the `Mosaic` in `Panel.qml`.
+- Popup stack header: add a small rounded accent bar at the left edge of the
+  stack header `Rectangle`, keeping the existing state dot (the small
+  `Rectangle` whose colour is chosen from `stackBlock.modelData.worst`) so state
+  and identity stay separate readings:
 
 ```qml
 Rectangle {
@@ -333,23 +477,51 @@ Rectangle {
 
 ## B5. Tooltip - the stack name
 
-Use the host tooltip API (`PluginBarApi.showTooltip`, documented in
-`../shell/plugins/bar/README.md:165`, used by first-party widgets in
-`ActiveWindow.qml:61`).
+The host tooltip is `bar.showTooltip(target, text)` / `bar.hideTooltip(target)`
+(`PluginBarApi`; documented in `/usr/share/omarchy/shell/plugins/bar/README.md`;
+first-party widgets use it in `plugins/bar/widgets/ActiveWindow.qml`).
+
+**The target must expose `tooltipHovered === true`.** `Bar.showTooltip` returns
+early on `!targetTooltipHovered(target)`, and `targetTooltipHovered`
+(`plugins/bar/Bar.qml`, ~line 399) is
+`!!target && target.visible !== false && target.opacity !== 0 &&
+target.tooltipHovered === true`. A widget without that property gets a silent
+no-op: the tooltip never appears and nothing errors. So `Mosaic.qml` must add:
+
+```qml
+readonly property bool tooltipHovered: blockHover.hovered && root.visible
+```
 
 - `Mosaic.qml`: a **single** `HoverHandler` on the mosaic root (not one per
   band), so moving across the block gaps does not churn enter/exit - the reason
-  the previous bar tooltip was removed (commit `736a0e7`). While hovered, map
-  `point.position.x` to a band via a small pure helper
-  `Docker.bandAt(bands, x)` and emit:
+  the previous bar tooltip was removed (commit `736a0e7`). `enabled` is
+  `root.groupColours && root.visible`. While hovered, map `point.position.x`
+  back into the plan's pixel space (`x + snapX`) and look up the band with the
+  pure helper `Docker.bandAt(bands, x)`. Emit:
 
   ```qml
   signal blockHovered(string name)
   signal blockUnhovered()
   ```
 
-  Emit `blockHovered(name)` only when the band changes; emit
-  `blockUnhovered()` when hover ends.
+  - Emit `blockHovered(name)` only when the name under the pointer changes.
+  - `bandAt` is containment-only, so a point in the block gap resolves to no
+    band. **Keep the last name across the gap** rather than clearing it, so the
+    tooltip does not blink at every stack boundary.
+  - Emit `blockUnhovered()` when hover ends.
+  - Collapsed and ungrouped modes have no bands, so `bandAt` always misses and
+    no tooltip is shown (see Non-goals).
+
+- **Clear the tooltip when what it names goes away.** Reset the tracked name and
+  emit `blockUnhovered()` when either:
+  - `groupColours` turns false while hovered - the handler is disabled, which
+    fires `onHoveredChanged` with `hovered === false`, or
+  - `plan` changes under a stationary pointer. A container added or removed
+    reflows the blocks, but the pointer does not move, so no `onPointChanged`
+    fires and the stale name would sit there. `plan` is a QML property, so
+    `onPlanChanged: { root.hoveredName = ""; root.blockUnhovered() }` catches
+    it. (The panel recomputes `resolved` on every container change, so this
+    fires with a new object.)
 
 - `Panel.qml`: connect them to the host tooltip, translating the loose group:
 
@@ -367,21 +539,14 @@ Gate both signals on `groupColours`, so one switch turns the whole feature on.
 
 ## B6. `I18n.js`
 
-- `pt` table only (English comes from the manifest, which is the existing rule
-  for `settings.label.*` / `settings.help.*`):
-
-  ```js
-  "settings.label.groupColours": "Colorir stacks",
-  "settings.help.groupColours": "Uma faixa tingida atrás de cada stack do compose na barra, e um acento igual nos cabeçalhos do popup. Saudável, atenção e quebrado continuam sendo a cor da célula.",
-  ```
-
-- The tooltip reuses `group.loose`, which already exists.
+Moved into B1: the pt label and help land with the manifest key, in the same
+step, because the suite is red in between. Nothing else is needed here - the
+tooltip reuses `group.loose`, which already exists in both tables.
 
 ## B7. Docs
 
-- `README.md`: add a `groupColours` row to the settings table
-  (`README.md:311-325`), and a sentence in the mosaic section about the stack
-  band and the hover name.
+- `README.md`: add a `groupColours` row to the settings table, and a sentence in
+  the mosaic section about the stack band and the hover name.
 - `CHANGELOG.md`: add an `## Unreleased` section above `## 1.1.0` with an
   **Added** entry for stack colours and a **Fixed** entry for the settings
   screen (state the shell incompatibility plainly).
@@ -398,14 +563,25 @@ Add checks; the file is plain node, `node test_docker.js`.
 
 - `groupHue`: same name -> same hue; `[0, 360)` and integer; two different
   fixture stack names differ.
-- `mosaicBands` (or `plan.bands`):
-  - container + grouped -> one band per stack, band columns match the block's
-    column range, `width` follows `columns*(cell+gap) - gap + 2*(gap/2)`, and a
-    single-container stack still has `width > cellPx`.
+- `mosaicBands` / `plan.bands`:
+  - container + grouped -> one band per stack, in `stableGroupOrder` order, each
+    covering its block's whole column range.
+  - Width is per-position, not one formula (B2's table). Build the assertion
+    from hand-written placements so it does not depend on the fixture's stack
+    count. With `cellPx = 4, gapPx = 2`:
+    - interior block -> `span * (cellPx + gapPx)`
+    - first block -> that minus `gapPx / 2`
+    - last block -> that minus `gapPx / 2`
+    - only block -> that minus `gapPx`
+  - a one-container stack that is not the only block has `width > cellPx`; a
+    lone one-container block has `width === cellPx` - assert the equality, so
+    the accepted case (B2) is explicit rather than accidental.
   - not emitted when `groupStacks` is false, nor in `stack`/`single` mode.
-- `bandAt(bands, x)`: returns the band containing `x`, and the gap between two
-  blocks resolves to one of them (or null) deterministically - lock whichever
-  the implementation chooses.
+- `bandAt(bands, x)`: containment only. A point inside a band returns it; a
+  point in the block gap returns `null` (assert the null - the tooltip relies on
+  keeping the last name across the gap, so a "helpful" neighbour guess would
+  reintroduce blinking); past the last band returns `null`; empty and `null`
+  band lists return `null`.
 - Schema/placement: the existing "every manifest key is filed into a named
   section" check covers the new key; confirm it stays green.
 - I18n: the existing "Portuguese label and help for every schema field" check
@@ -417,27 +593,38 @@ Add checks; the file is plain node, `node test_docker.js`.
 1. `node test_docker.js` - all green.
 2. `omarchy restart shell`.
 3. Open the settings screen; confirm fields render and the changed count works.
-4. Turn **Colour stacks** on; confirm the mosaic shows bands and the popup
+4. Change three or more settings, then press **Reset everything**; confirm the
+   header returns to "All at their defaults" and `shell.json` keeps none of
+   them (A4).
+5. Turn **Colour stacks** on; confirm the mosaic shows bands and the popup
    headers show accents; hover a band and confirm the tooltip names the stack.
-5. Screenshot the bar and check the bands are visible, not clipped, and not
+6. With the pointer on a band, add or stop a container and confirm the tooltip
+   clears rather than showing a stale name.
+7. Screenshot the bar and check the bands are visible, not clipped, and not
    confused with the cell colour: `hyprctl monitors -j`, then
    `grim -g "<x>,<y> <w>x30" - | magick - -scale 800% /tmp/bar.png`.
-6. Confirm `groupColours: true` is in `shell.json` and survives a restart.
+8. Confirm `groupColours: true` is in `shell.json` and survives a restart.
 
 # Risks
 
 - **Tooltip flicker** (the reason the old bar tooltip was removed): mitigated by
-  a single mosaic-level `HoverHandler` and by `metricWidthSample` having already
-  fixed the widget's width. If it still flickers, drop B5 rather than ship it.
+  a single mosaic-level `HoverHandler`, keeping the last name across the block
+  gap, and `metricWidthSample` having already fixed the widget's width. If it
+  still flickers, drop B5 rather than ship it.
 - **Band strength across themes**: fixed HSLA may read as too strong on a light
   theme. Tune saturation/alpha against a real theme and screenshot both.
 - **`updateEntryInline` return value is ambiguous** (false for no-op and for
-  refusal). A4's value comparison removes the ambiguity before the call.
+  refusal). A3's `writeSettings` comparison removes the ambiguity before the
+  call.
+- **Reset-everything lost updates**: A3 writes once instead of looping; A4 and
+  Part D step 4 are the checks.
 - **Schema arrives with the service**: if the service is not loaded yet the
   settings screen is briefly empty, the same as the container list. Acceptable.
 - **Write path is shell-version specific**: if `bar.shell.updateEntryInline`
   disappears, `canWriteSettings` is false and the screen says so by name
   (`settings.readOnly`), rather than looking live and doing nothing.
+- **`tooltipHovered` is load-bearing**: without it `Bar.showTooltip` is a silent
+  no-op. B5 states it; the manual step 5 is the check.
 
 # Out of scope
 
