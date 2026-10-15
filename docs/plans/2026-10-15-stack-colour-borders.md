@@ -9,6 +9,14 @@ accepted. Part C also drops the `mosaicBands`-only `blockGapPx = 0` framing:
 `planMosaic` coerces `0` to `3`, so that input is unreachable from the setting
 and the fallback is defensive (Known issues).
 
+Second pass, from the plan-conformance review of the first implementation: the
+smallest value that actually reaches `mosaicBands` from the setting is
+`blockGapPx = 1` (`stackGap 1`), not `gapPx` - `planMosaic` floors at 1 - and
+that is the fractional-rim branch (`h = 1.5`, a half device pixel) the comment
+warns about. Part A and Part C now say so and Part C covers it. Part D also
+names README's settings table row, which was left stale while the manifest and
+pt-I18n descriptions were fixed.
+
 Builds on `docs/plans/2026-10-15-stack-colours.md` (implemented in `20a7c4d`).
 That plan's B2 width table is superseded by Part A below.
 
@@ -62,8 +70,11 @@ far as the block gap can absorb:
 // carry different hues, so an abutting pair still reads as two chips, unlike two
 // cells of the same colour.
 //
-// blockGapPx 0 is unreachable from the setting (planMosaic coerces it to 3 and
-// floors at 1), so that branch exists for direct callers and tests only.
+// blockGapPx 0 is unreachable from the setting: planMosaic's `Number(x) || 3`
+// turns the falsy 0 into 3, and it floors at 1. That branch exists for direct
+// callers and tests only. The smallest value that does arrive from the setting
+// is 1, where the cap gives half = 1.5 - a rim on a half DEVICE pixel, which is
+// the accepted case the note below is about.
 var half = Math.min(gapPx, (gapPx + blockGapPx) / 2)
 ```
 
@@ -140,17 +151,20 @@ bounds, so the band's outer size does not change and Part A's table still holds.
   `S + h - gapPx`, `S - gapPx`), not as hard-coded `+ 2` / `- 2`, so the test
   states the rule rather than one instance of it.
 - Update `"a one-container stack beside others is wider than its own cell"`: the
-  interior width is now `cellPx + 2 * gapPx` (8), not `cellPx + gapPx`.
+  interior width is now `cellPx + 2 * gapPx` (8), not `cellPx + gapPx`. Express
+  that from the locals too, not as a literal `4 + 2 * 2`.
 - Keep `"a lone one-container block is exactly its own cell - accepted"` at
   `width === cellPx`; the new rule still collapses it there, and that assertion
   is the guard against someone "fixing" it.
 - **Add** a non-overlap check for the defaults: `bands[0].left +
   bands[0].width < bands[1].left`, with the separation asserted to be exactly
   `gapPx + blockGapPx - 2 * h` (1).
-- **Add** a non-overlap check for `blockGapPx <= gapPx` (use `gapPx` itself, the
-  smallest value that reaches `mosaicBands` from the setting): the separation is
-  `0`, so assert `<=` there and say in the comment that the cap guarantees
-  non-overlap only and abutting is accepted - do not write "never touch".
+- **Add** a non-overlap check at the **smallest value that reaches the helper
+  from the setting**, `blockGapPx = 1` (`stackGap 1`; `planMosaic` floors at 1,
+  so 0 never arrives). This is the branch the Docker.js comment warns about:
+  `h = (gapPx + 1) / 2 = 1.5`, a rim on a half device pixel. The separation is
+  `0`, so assert `<=` and say in the comment that the cap guarantees non-overlap
+  only and abutting is accepted - do not write "never touch".
 - **Add** the defensive `blockGapPx = 0` case: `h` is `gapPx / 2` and the two
   bands do not overlap. Say in the comment that this input is unreachable from
   the setting (Part A), so the check documents the helper's contract only.
@@ -165,7 +179,9 @@ Keep the count quoted in `CLAUDE.md` and `README.md` in step with the file.
 # Part D - docs
 
 - `README.md`: the mosaic sentence about the band should mention the frame, not
-  just the tint.
+  just the tint - and so should the settings table row for `groupColours`. The
+  row is the same class of description as the manifest and pt-I18n entries
+  below; leaving it stale is how the three drift apart.
 - `manifest.json` (`barWidget.schema` for `groupColours`) and the Portuguese
   `settings.help.groupColours` in `I18n.js`: both describe a tinted band; say it
   has a frame now, or the setting's own description is out of date with what it
