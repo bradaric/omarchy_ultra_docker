@@ -153,7 +153,7 @@
         "key": "groupColours",
         "type": "boolean",
         "label": "Colour stacks",
-        "description": "A tinted band behind each compose stack in the bar, and a matching accent in the popup headers. Healthy, warning and broken stay the cell colour.",
+        "description": "A tinted band and frame behind each compose stack in the bar, and a matching accent in the popup headers. Healthy, warning and broken stay the cell colour.",
         "defaultValue": false
       },
       {

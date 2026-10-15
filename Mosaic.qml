@@ -165,6 +165,15 @@ Item {
       radius: Math.min(3, root.plan.cellPx / 2)
       // A muted tint: the cell on top is the state, this is only the group.
       color: Qt.hsla(modelData.hue / 360, 0.55, 0.55, 0.30)
+      // The frame that makes a stack a chip instead of a stain. Snapped to a
+      // whole DEVICE pixel: a 1-logical-pixel border is 0.85 device pixels under
+      // QT_SCALE_FACTOR and rasterises as a soft half-pixel line. See the
+      // device-pixel note in CLAUDE.md.
+      border.width: Docker.snapToDevice(1, Screen.devicePixelRatio)
+      border.color: Qt.hsla(modelData.hue / 360, 0.55, 0.55, 0.85)
+      // The fill already animates; the outline has to follow it or the frame
+      // snaps while the wash eases.
+      Behavior on border.color { ColorAnimation { duration: 200 } }
       Behavior on color { ColorAnimation { duration: 200 } }
     }
   }

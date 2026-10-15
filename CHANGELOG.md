@@ -7,8 +7,9 @@
 - **Colour stacks** — an opt-in tinted band behind each compose stack in the bar
   mosaic, a matching accent on the stack's header in the popup, and the stack's
   name on hover. The hue is derived from the stack name, so it never changes as
-  containers start and stop. Cells keep meaning state; the band only says which
-  stack you are looking at.
+  containers start and stop. Each band carries a same-hue frame and a wider rim,
+  so a stack reads as a framed chip rather than a wash behind it. Cells keep
+  meaning state; the band only says which stack you are looking at.
 
 ### Fixed
 

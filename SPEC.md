@@ -271,7 +271,7 @@ fixtures/demo/  throwaway compose stacks that generate the fixtures
 
 ## Checks
 
-`node test_docker.js` — 79 checks, no framework, no network, no daemon.
+`node test_docker.js` — 228 checks, no framework, no network, no daemon.
 
 Fixtures are real `docker` output captured from `fixtures/demo/`, which exists so
 the awkward states are real rather than hand-written: a clean exit, a failed

@@ -662,23 +662,36 @@ function groupHue(name) {
   return Math.floor((hash * 0.618033988749895 % 1) * 360)
 }
 
-// One background band per stack block, in the mosaic's own pixel space. Half a
-// cell gap on each side so a one-container stack is wider than its own cell,
-// clamped to the mosaic so the outermost bands do not overhang it.
+// One background band per stack block, in the mosaic's own pixel space. Each
+// side is widened by `half` (below), clamped to the mosaic so the outermost
+// bands do not overhang it.
 //
-// cellPx and gapPx are already device-snapped, so the band lands on the device
-// grid too - except for the half-gap, which is half a device pixel when gapPx is
-// odd. The renderer only shifts by snapX/snapY, so a band edge can land on a
-// half device pixel. That is accepted here and must NOT be "fixed" the way a
-// cell is: the band is a translucent background, so a soft edge reads as a tint,
-// whereas a fractional CELL edge merges two cells into one shape.
+// `half` is a full CELL gap of rim on each side, capped by the block gap so two
+// neighbouring bands never overlap: each may spend at most half the space
+// between them. At the defaults (gapPx 2, blockGapPx 3) that is 2, leaving a
+// separation of gapPx + blockGapPx - 2*half = 1px between neighbouring bands.
+// The cap guarantees non-overlap, only: when blockGapPx <= gapPx the separation
+// is 0 and the bands abut. Accepted - the bands carry different hues, so an
+// abutting pair still reads as two chips.
 //
-// The two clamps interact, so the width depends on position: an interior block
-// is span*(cell+gap); the first and last blocks lose half a gap; a lone block,
-// both clamps at once, is span*(cell+gap) - gap. A one-container interior stack
-// is therefore wider than its own cell, a first/last one shows past one side,
-// and a lone one is exactly its cell - accepted, since nothing distinguishes it
-// and widening it would push the band past the bar.
+// cellPx and gapPx are already device-snapped, so the rim is a whole device
+// pixel at the defaults. When the block gap caps it, (gapPx + blockGapPx) / 2
+// can land on a half device pixel, and the renderer only shifts by snapX/snapY,
+// so a band edge can land on a half device pixel. That is accepted here and must
+// NOT be "fixed" the way a cell is: the band is a translucent background, so a
+// soft edge reads as a tint, whereas a fractional CELL edge merges two cells
+// into one shape.
+//
+// The two clamps interact, so the width depends on position. With
+// span = maxCol - minCol + 1, S = span*(cellPx + gapPx), h = half:
+//   interior:  S + 2h - gapPx   (defaults: S + 2)
+//   first:     S + h - gapPx    (defaults: S)
+//   last:      S + h - gapPx    (defaults: S)
+//   lone:      S - gapPx        (defaults: S - 2)
+// A one-container interior stack is therefore wider than its own cell, a
+// first/last one shows past one side, and a lone one collapses to exactly its
+// cell - accepted, since nothing distinguishes it and widening it would push
+// the band past the bar.
 function mosaicBands(cells, placements, cellPx, gapPx, blockGapPx, heightPx, widthPx) {
   var out = []
   if (!placements || placements.length === 0) return out
@@ -692,7 +705,20 @@ function mosaicBands(cells, placements, cellPx, gapPx, blockGapPx, heightPx, wid
     if (p.column > spans[key].max) spans[key].max = p.column
   }
 
-  var half = gapPx / 2
+  // A full CELL gap of rim on each side, so a one-container stack is not merely
+  // wider than its own cell but has a margin you can see. Capped by the block gap
+  // so two neighbouring bands can never overlap: each band may spend at most half
+  // of the space between them. At the defaults (gapPx 2, stackGap 3) this is 2,
+  // leaving 1px between neighbouring bands.
+  //
+  // The cap guarantees non-overlap, only: when the block gap is no wider than the
+  // cell gap the space between two bands is 0 and they abut. Accepted - the bands
+  // carry different hues, so an abutting pair still reads as two chips, unlike two
+  // cells of the same colour.
+  //
+  // blockGapPx 0 is unreachable from the setting (planMosaic coerces it to 3 and
+  // floors at 1), so that branch exists for direct callers and tests only.
+  var half = Math.min(gapPx, (gapPx + blockGapPx) / 2)
   for (var b = 0; b < spans.length; b++) {
     var span = spans[b]
     if (!span) continue

@@ -186,8 +186,9 @@ check("one band per stack, covering exactly its own columns", () => {
     assert.strictEqual(plan.bands[b].hue, groupHue(groups[b].project))
   }
 
-  // Every cell sits inside the band for its own stack (the band expands by half
-  // a gap, clamped at the mosaic edges, so it only ever over-covers).
+  // Every cell sits inside the band for its own stack (each side is widened by
+  // `half` - a full cell gap at the defaults, capped by the block gap - and
+  // clamped at the mosaic edges, so it only ever over-covers).
   for (let i = 0; i < plan.cells.length; i++) {
     const placement = plan.grid.cells[i]
     const band = plan.bands[placement.block]
@@ -214,35 +215,41 @@ check("band width follows the clamp, per position", () => {
     { block: 1, column: 2 }, { block: 1, column: 3 },
     { block: 2, column: 4 }, { block: 2, column: 5 }
   ]
-  const width = mosaicWidth({ columns: 6, blocks: 3 }, 4, 2, 3)
-  const bands = mosaicBands(cells, placements, 4, 2, 3, 16, width)
-  const S = 2 * (4 + 2) // span * (cellPx + gapPx)
-  const H = 2 / 2
+  const gapPx = 2
+  const width = mosaicWidth({ columns: 6, blocks: 3 }, 4, gapPx, 3)
+  const bands = mosaicBands(cells, placements, 4, gapPx, 3, 16, width)
+  const S = 2 * (4 + gapPx) // span * (cellPx + gapPx)
+  const h = Math.min(gapPx, (gapPx + 3) / 2) // min(gapPx, (gapPx + blockGapPx) / 2) = 2
 
   assert.strictEqual(bands.length, 3)
-  // first: the left clamp bites, so one half-gap is lost
+  // first: the left clamp bites, so one side's widening is lost
   assert.strictEqual(bands[0].left, 0, "first band is pinned to the mosaic edge")
-  assert.strictEqual(bands[0].width, S - H)
+  assert.strictEqual(bands[0].width, S + h - gapPx, "interior formula minus one side")
   // interior: neither clamp bites
-  assert.strictEqual(bands[1].width, S)
+  assert.strictEqual(bands[1].width, S + 2 * h - gapPx)
   // last: the right clamp bites
-  assert.strictEqual(bands[2].width, S - H)
+  assert.strictEqual(bands[2].width, S + h - gapPx, "interior formula minus one side")
   assert.strictEqual(bands[2].left + bands[2].width, width,
     "last band ends exactly at the mosaic edge")
 })
 
 check("a one-container stack beside others is wider than its own cell", () => {
-  // block 0 is one container; block 1's presence widens the whole mosaic past
-  // block 0's own cell, so its half-gap of band shows past one edge.
-  const cells = [{ group: "solo" }, { group: "rest" }, { group: "rest" }]
+  // An interior one-container stack: the wider rim makes its band
+  // cellPx + 2 * gapPx = 8, where the column's own span (S) is cellPx + gapPx = 6.
+  const cellPx = 4
+  const gapPx = 2
+  const cells = [{ group: "left" }, { group: "solo" }, { group: "right" }]
   const placements = [
     { block: 0, column: 0 },
-    { block: 1, column: 1 }, { block: 1, column: 2 }
+    { block: 1, column: 1 },
+    { block: 2, column: 2 }
   ]
-  const width = mosaicWidth({ columns: 3, blocks: 2 }, 4, 2, 3)
-  const bands = mosaicBands(cells, placements, 4, 2, 3, 16, width)
-  assert.strictEqual(bands.length, 2)
-  assert.ok(bands[0].width > 4, "the solo block shows band past its cell")
+  const width = mosaicWidth({ columns: 3, blocks: 3 }, cellPx, gapPx, 3)
+  const bands = mosaicBands(cells, placements, cellPx, gapPx, 3, 16, width)
+  assert.strictEqual(bands.length, 3)
+  const solo = bands[1]
+  assert.strictEqual(solo.width, cellPx + 2 * gapPx, "cellPx + 2 * gapPx")
+  assert.ok(solo.width > cellPx, "the solo block shows band past its cell")
 })
 
 check("a lone one-container block is exactly its own cell - accepted", () => {
@@ -262,15 +269,86 @@ check("a lone block wider than one column: both clamps bite at once", () => {
   // is S - gapPx = 10 - the cells' own row span, still wider than one cell.
   const cells = [{ group: "a" }, { group: "a" }]
   const placements = [{ block: 0, column: 0 }, { block: 0, column: 1 }]
-  const width = mosaicWidth({ columns: 2, blocks: 1 }, 4, 2, 3)
-  const bands = mosaicBands(cells, placements, 4, 2, 3, 16, width)
-  const S = 2 * (4 + 2) // span * (cellPx + gapPx)
+  const gapPx = 2
+  const width = mosaicWidth({ columns: 2, blocks: 1 }, 4, gapPx, 3)
+  const bands = mosaicBands(cells, placements, 4, gapPx, 3, 16, width)
+  const S = 2 * (4 + gapPx) // span * (cellPx + gapPx)
   assert.strictEqual(bands.length, 1)
   assert.strictEqual(bands[0].left, 0, "pinned to the mosaic edge")
   assert.strictEqual(bands[0].left + bands[0].width, width,
     "ends exactly at the mosaic edge")
-  assert.strictEqual(bands[0].width, S - 2, "S - gapPx")
+  assert.strictEqual(bands[0].width, S - gapPx, "S - gapPx")
   assert.ok(bands[0].width > 0, "still visible: the cells' own row span")
+})
+
+check("at the defaults neighbouring bands keep exactly 1px between them", () => {
+  const gapPx = 2
+  const blockGapPx = 3
+  const cells = [
+    { group: "a" }, { group: "a" },
+    { group: "b" }, { group: "b" }
+  ]
+  const placements = [
+    { block: 0, column: 0 }, { block: 0, column: 1 },
+    { block: 1, column: 2 }, { block: 1, column: 3 }
+  ]
+  const width = mosaicWidth({ columns: 4, blocks: 2 }, 4, gapPx, blockGapPx)
+  const bands = mosaicBands(cells, placements, 4, gapPx, blockGapPx, 16, width)
+  const h = Math.min(gapPx, (gapPx + blockGapPx) / 2)
+  assert.strictEqual(bands.length, 2)
+  assert.ok(bands[0].left + bands[0].width < bands[1].left,
+    "strictly separated: the cap leaves 1px at the defaults")
+  assert.strictEqual(bands[1].left - (bands[0].left + bands[0].width),
+    gapPx + blockGapPx - 2 * h, "gapPx + blockGapPx - 2 * h")
+})
+
+check("at the smallest block gap from the setting the bands abut, and that is accepted", () => {
+  // blockGapPx 1 is the smallest value that reaches mosaicBands from the setting
+  // (stackGap 1; planMosaic floors at 1, so 0 never arrives). There the cap gives
+  // h = (gapPx + 1) / 2 = 1.5 - a rim on a half DEVICE pixel, the fractional case
+  // the Docker.js comment warns about. The separation is
+  // gapPx + blockGapPx - 2*h = 0, so the cap guarantees non-overlap only and an
+  // abutting pair is accepted - the bands carry different hues, so it still reads
+  // as two chips. Do not assert "never touch".
+  const gapPx = 2
+  const blockGapPx = 1
+  const cells = [
+    { group: "a" }, { group: "a" },
+    { group: "b" }, { group: "b" }
+  ]
+  const placements = [
+    { block: 0, column: 0 }, { block: 0, column: 1 },
+    { block: 1, column: 2 }, { block: 1, column: 3 }
+  ]
+  const width = mosaicWidth({ columns: 4, blocks: 2 }, 4, gapPx, blockGapPx)
+  const bands = mosaicBands(cells, placements, 4, gapPx, blockGapPx, 16, width)
+  const h = Math.min(gapPx, (gapPx + blockGapPx) / 2) // 1.5: a half device pixel
+  assert.strictEqual(h, 1.5, "the cap lands on a half device pixel, not a whole one")
+  assert.strictEqual(bands.length, 2)
+  assert.strictEqual(bands[1].left - (bands[0].left + bands[0].width),
+    gapPx + blockGapPx - 2 * h, "separation is 0: the bands abut")
+  assert.ok(bands[0].left + bands[0].width <= bands[1].left,
+    "bands abut but never overlap")
+})
+
+check("with blockGapPx 0 the rim falls back to half a gap and bands do not overlap", () => {
+  // Defensive only: blockGapPx 0 is unreachable from the setting, because
+  // planMosaic coerces 0 to 3 and floors at 1, so this documents the helper's
+  // contract for direct callers and tests. With gapPx 2 the cap gives gapPx / 2.
+  const gapPx = 2
+  const cells = [
+    { group: "a" }, { group: "a" },
+    { group: "b" }, { group: "b" }
+  ]
+  const placements = [
+    { block: 0, column: 0 }, { block: 0, column: 1 },
+    { block: 1, column: 2 }, { block: 1, column: 3 }
+  ]
+  const width = mosaicWidth({ columns: 4, blocks: 2 }, 4, gapPx, 0)
+  const bands = mosaicBands(cells, placements, 4, gapPx, 0, 16, width)
+  assert.strictEqual(bands.length, 2)
+  assert.ok(bands[0].left + bands[0].width <= bands[1].left,
+    "neighbouring bands do not overlap")
 })
 
 check("no bands without grouping, and none in the collapsed modes", () => {
