@@ -23,6 +23,15 @@ band the **grid's** height, so a stack with fewer containers than rows carried
 empty tint below its dots. Part A2 makes the band as tall as its own cells, and
 the original stack-colours plan's "the full mosaic height" is superseded with it.
 
+**Fourth pass - Part A2 reverted.** It was implemented, and the user looked at
+it: chips that hug their dots come out at different heights, and a strip of
+mixed-height chips reads as ragged - worse than the uniform grid they had just
+approved ("not sure this is better"). So the band goes back to the grid's
+height, `heightPx` comes back to `mosaicBands`, the vertical rim and the
+`bandSignature` height go with it, and the border and the wider rim stay. Part
+A2 is kept below only as the record of what was tried; it is **not** to be
+applied. The uniform strip is the look that shipped.
+
 Builds on `docs/plans/2026-10-15-stack-colours.md` (implemented in `20a7c4d`).
 That plan's B2 width table is superseded by Part A below.
 
@@ -123,7 +132,14 @@ Two things that do **not** change:
 Where the width is used - the `left` and `width` fields emitted per band, and
 `plan.bands` in `plan()` - nothing else changes.
 
-# Part A2 - `Docker.js`: the band is as tall as its own cells
+# Part A2 - `Docker.js`: the band is as tall as its own cells (REVERTED - not applied)
+
+**This part was implemented and then reverted.** The shipped code keeps
+`height: heightPx` - every band is the grid's height - and `mosaicBands` keeps
+its `heightPx` parameter. It is kept here only as the record of what was tried
+and why it was dropped: chips that hug their dots end up at different heights
+and the strip reads as ragged. Do not re-apply it without the user asking for a
+ragged mosaic.
 
 `mosaicBands` currently emits `height: heightPx` for every band - the **grid's**
 height, not the block's. `blockLayout` fills each block top to bottom, so a
@@ -198,21 +214,16 @@ Two small consequences to carry:
   so without it the signature misses a real geometry change. Width-only was
   sufficient while every band was grid-height; it is not now.
 
-# Part B - `Mosaic.qml`: the border and the rim
+# Part B - `Mosaic.qml`: the border
 
-On the band `Rectangle` (the `Repeater` over `root.plan.bands`), the geometry
-gains the vertical rim from Part A2, and the paint gains the border:
+On the band `Rectangle` (the `Repeater` over `root.plan.bands`), keep the
+geometry exactly as it is and add the border:
 
 ```qml
-// As much of the rim as the item has spare, so the chip never overflows the
-// mosaic's box. On a bar where the plan already fills the item this is 0 and
-// the top and bottom lines are simply hidden under the dots (Part A2).
-readonly property real rim: Math.min(modelData.rim, root.topInset)
-
 x: modelData.left - root.snapX
-y: root.topInset - rim - root.snapY
+y: root.topInset - root.snapY
 width: modelData.width
-height: modelData.height + 2 * rim
+height: modelData.height
 
 radius: Math.min(3, root.plan.cellPx / 2)
 // A muted tint: the cell on top is the state, this is only the group.
@@ -228,14 +239,13 @@ border.color: Qt.hsla(modelData.hue / 360, 0.55, 0.55, 0.85)
 Behavior on border.color { ColorAnimation { duration: 200 } }
 ```
 
+No `rim` property, no change to `y` or `height`: the vertical rim belonged to
+Part A2 and went with it. The band is the grid's height, so the frame closes on
+all four sides of every chip and the strip stays level.
+
 `Mosaic.qml` already imports `QtQuick.Window` (for `Screen`) and `Docker.js`
 (for `bandAt`), so both are in scope. `border.width` draws inside the band's
 bounds, so the band's outer size does not change and Part A's table still holds.
-
-The `rim` property shadows nothing, but it does mean `y` and `height` now
-depend on `topInset`, which depends on `height` - both already resolve before
-the delegate paints, so there is no binding loop; the rim is a `min` of two
-plain values, not a feedback into the layout.
 
 # Part C - tests (`test_docker.js`)
 
@@ -269,26 +279,10 @@ plain values, not a feedback into the layout.
 - **Do not** add a `planMosaic`-level test for `blockGapPx 0`. It cannot reach
   the bands; such a test would be testing `planMosaic`'s coercion, which this
   plan does not change (see Known issues).
-- **Every existing `mosaicBands(...)` call loses the `heightPx` argument** (Part
-  A2's signature change). Read the call sites carefully: the argument after
-  `blockGapPx` is now `widthPx`.
-- **Add** the height coverage Part A2 introduces, all on hand-written
-  placements at `cellPx 4, gapPx 2`:
-  - a block that fills every row keeps the old height: two rows ->
-    `bands[0].height === 2 * cellPx + gapPx` (10);
-  - a block that uses one row of a two-row grid is `cellPx` tall (4) - the
-    screenshot case, a one-container stack no longer carrying a second row of
-    empty tint;
-  - two blocks in the same grid get **different** heights when one of them fills
-    both rows and the other does not, which is the assertion that would fail if
-    the grid height leaked back in.
-- **Add** the rim assertion: every band carries `rim === h`, the same `half` the
-  widths use, so the renderer and the geometry cannot disagree about how thick
-  the frame is. The vertical placement (`min(rim, topInset)`) is QML and stays a
-  manual check.
-- Confirm the popped `heightPx` argument is gone from **both** the signature and
-  the `plan()` call site - a leftover argument would silently shift `widthPx`
-  into the wrong slot.
+- **Part A2's test additions are reverted with it.** `mosaicBands` keeps its
+  `heightPx` argument at the signature, the `plan()` call site and every test
+  call; there are no `height` or `rim` assertions. Every band is the grid's
+  height, so there is nothing new to assert about height.
 
 Keep the count quoted in `CLAUDE.md`, `README.md` and `SPEC.md` in step with the
 file.
@@ -315,10 +309,10 @@ file.
 3. **Screenshot the bar and look at it:** on this machine the bar is the top 24px
    of each monitor (`reserved` is `[left, top, right, bottom]`), so
    `grim -g "0,0 1920x24"` on DP-1; HDMI-A-1 is at y 1080 and DP-2 at y -1080.
-   Check that a **one-container stack is now a one-row chip that hugs its dot**,
-   that the frame still closes on all four sides at the defaults, that
-   neighbouring stacks separate (1px at the defaults), and that the border is a
-   crisp whole-pixel line, not a grey smear. Tune `border.color`'s alpha (0.85)
+   Check that every chip is the **same height** (the uniform strip is the
+   shipped look - Part A2's ragged variant was reverted), that the frame closes
+   on all four sides, that neighbouring stacks separate (1px at the defaults),
+   and that the border is a crisp whole-pixel line, not a grey smear. Tune `border.color`'s alpha (0.85)
    and, if needed, the fill alpha (0.30) - those two numbers are the whole visual
    calibration.
 4. Set a **small legal** `stackGap` (`omarchy bar set avila.ultra-docker
