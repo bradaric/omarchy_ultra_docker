@@ -361,7 +361,7 @@ is 30 seconds for a reason.
 node test_docker.js
 ```
 
-228 checks, no framework, no network, no daemon. `fixtures/` holds real
+229 checks, no framework, no network, no daemon. `fixtures/` holds real
 `docker ps` and `docker stats` output; the tests run against that.
 
 See `CLAUDE.md` for how the pieces fit and what has already bitten.
