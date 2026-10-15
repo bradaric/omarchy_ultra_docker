@@ -1,8 +1,9 @@
 # Stack colours, and the settings screen that never rendered
 
-Status: approved 2026-10-15; revised 2026-10-15 after plan review.
+Status: approved 2026-10-15; revised twice after plan review (second pass:
+G1-G3).
 
-Revision notes (what changed and why):
+Revision notes (first review - F1-F5):
 
 - **Ordering of the settings key and its Portuguese strings is now a single
   step.** The manifest key and `I18n.js`'s pt label/help must land together or
@@ -11,11 +12,26 @@ Revision notes (what changed and why):
   clamps mean the first, last and only blocks lose half a gap; the old
   single-formula assertion was wrong for them. See B2 and Part C.
 - **`resetAllSettings` no longer loops `writeSetting`.** Each write merges from
-  `root.settings`, which does not refresh synchronously, so a loop could lose
+  `root.settings`, which may not refresh synchronously, so a loop could lose
   updates. One merged write instead. See A3.
 - **The tooltip's host contract and its stale-text cases are specified.**
   `Bar.showTooltip` refuses a target without `tooltipHovered`, and bands
   changing under a stationary pointer left a stale name. See B5.
+
+Revision notes (second review - G1-G3):
+
+- **G1: the reset check asserted the wrong end state.** `resetAllSettings`
+  writes each key back at its default; it does not delete it, so `shell.json`
+  still contains the keys after a correct reset. A4 and Part D step 4 now say
+  "back at its default value", and name the header count as the real signal.
+- **G2: the tooltip would clear on every state read.** `resolved` is rebuilt on
+  every `docker events` refresh and the 60s poll even when the layout is
+  unchanged, so keying the clear off `plan` would hide the tooltip once a
+  minute. B5 now keys it off a band signature, and Part D step 6 checks both
+  halves: stays across an unchanged refresh, clears on a real layout change.
+- **G3: an unproven claim stated as fact.** A3 now says the host *may not*
+  refresh `settings` synchronously; the single-write design does not depend on
+  which.
 
 Shell references: all shell paths below are absolute under
 `/usr/share/omarchy/shell/` on Omarchy `4.0.0.alpha`. Any bare file name
@@ -227,13 +243,14 @@ function writeSetting(key, value) {
 field.defaultValue)`.
 
 **`resetAllSettings` must not loop `writeSetting`.** Each write rebuilds from
-`root.settings`, and the host does not refresh `settings` synchronously between
+`root.settings`, and the host may not refresh `settings` synchronously between
 two calls in the same tick (`shell.qml` `persistShellConfig` reassigns
-`shellConfig`; `settings` reaches the widget on the next pass). The second call
-would merge onto the stale object and silently revert the first - "Reset
-everything" would reset one field and lose the rest, which is exactly the
-"controls look live and do nothing" failure this plugin warns about. Build one
-merged object and write once:
+`shellConfig`; `settings` reaches the widget on a later pass - the plan does not
+rely on which). If it has not refreshed, the second call merges onto the stale
+object and silently reverts the first, so "Reset everything" would reset one
+field and lose the rest - exactly the "controls look live and do nothing"
+failure this plugin warns about. One merged write removes the dependency
+entirely:
 
 ```qml
 function resetAllSettings() {
@@ -263,8 +280,9 @@ function resetAllSettings() {
   `~/.config/omarchy/shell.json` under the widget's `bar.layout.<section>[]`
   entry, and that the other keys already in that entry are still there.
 - Press **Reset everything**; confirm the header says "All at their defaults"
-  and `shell.json` holds none of the changed keys (this is the check that
-  catches the lost-update loop described above).
+  and that every changed key in `shell.json` is back at its **default value**.
+  The reset writes the defaults back; it does not delete the keys, so their
+  presence is not a failure. The header count is the reliable signal.
 - Restart the shell again and confirm the values survive.
 
 ---
@@ -512,16 +530,37 @@ readonly property bool tooltipHovered: blockHover.hovered && root.visible
   - Collapsed and ungrouped modes have no bands, so `bandAt` always misses and
     no tooltip is shown (see Non-goals).
 
-- **Clear the tooltip when what it names goes away.** Reset the tracked name and
-  emit `blockUnhovered()` when either:
+- **Clear the tooltip when what it names goes away, and only then.** Reset the
+  tracked name and emit `blockUnhovered()` when either:
   - `groupColours` turns false while hovered - the handler is disabled, which
     fires `onHoveredChanged` with `hovered === false`, or
-  - `plan` changes under a stationary pointer. A container added or removed
-    reflows the blocks, but the pointer does not move, so no `onPointChanged`
-    fires and the stale name would sit there. `plan` is a QML property, so
-    `onPlanChanged: { root.hoveredName = ""; root.blockUnhovered() }` catches
-    it. (The panel recomputes `resolved` on every container change, so this
-    fires with a new object.)
+  - the **bands** actually change. Do not key this off `plan` itself: the panel
+    rebuilds `resolved` on every state read - `docker events` activity and the
+    60s safety poll included - even when the layout is identical, so
+    `onPlanChanged` would hide the tooltip once a minute for no reason. That is
+    the same class of unexplained disappearance that removed the first tooltip.
+    Key it off a band signature instead:
+
+    ```qml
+    // The bands, not the plan: a state refresh that leaves the layout alone
+    // must not hide the tooltip under a stationary pointer.
+    readonly property string bandSignature: {
+      var bands = root.plan.bands || []
+      var parts = []
+      for (var i = 0; i < bands.length; i++)
+        parts.push(bands[i].group + ":" + bands[i].left + ":" + bands[i].width)
+      return parts.join("|")
+    }
+
+    onBandSignatureChanged: {
+      root.hoveredName = ""
+      root.blockUnhovered()
+    }
+    ```
+
+    A container added or removed reflows the blocks, which changes the
+    signature, which clears the stale name. An unchanged layout leaves the
+    signature alone and the tooltip stays.
 
 - `Panel.qml`: connect them to the host tooltip, translating the loose group:
 
@@ -594,12 +633,18 @@ Add checks; the file is plain node, `node test_docker.js`.
 2. `omarchy restart shell`.
 3. Open the settings screen; confirm fields render and the changed count works.
 4. Change three or more settings, then press **Reset everything**; confirm the
-   header returns to "All at their defaults" and `shell.json` keeps none of
-   them (A4).
+   header returns to "All at their defaults" and each changed key in
+   `shell.json` is back at its default value. The keys stay present; their
+   presence is not a failure (A4).
 5. Turn **Colour stacks** on; confirm the mosaic shows bands and the popup
    headers show accents; hover a band and confirm the tooltip names the stack.
-6. With the pointer on a band, add or stop a container and confirm the tooltip
-   clears rather than showing a stale name.
+6. The tooltip does not clear on its own. Hold the pointer still over a band:
+   - across a state refresh that leaves the layout unchanged (a `docker events`
+     burst elsewhere on the machine, or the 60s safety poll) the name must
+     **stay**;
+   - then change the layout (start or stop a container in that stack) and it
+     must **clear**, rather than name a stack that is no longer under the
+     pointer.
 7. Screenshot the bar and check the bands are visible, not clipped, and not
    confused with the cell colour: `hyprctl monitors -j`, then
    `grim -g "<x>,<y> <w>x30" - | magick - -scale 800% /tmp/bar.png`.
@@ -609,8 +654,9 @@ Add checks; the file is plain node, `node test_docker.js`.
 
 - **Tooltip flicker** (the reason the old bar tooltip was removed): mitigated by
   a single mosaic-level `HoverHandler`, keeping the last name across the block
-  gap, and `metricWidthSample` having already fixed the widget's width. If it
-  still flickers, drop B5 rather than ship it.
+  gap, clearing only on a band-signature change rather than on every state read,
+  and `metricWidthSample` having already fixed the widget's width. If it still
+  flickers, drop B5 rather than ship it.
 - **Band strength across themes**: fixed HSLA may read as too strong on a light
   theme. Tune saturation/alpha against a real theme and screenshot both.
 - **`updateEntryInline` return value is ambiguous** (false for no-op and for
